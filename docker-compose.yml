@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15
+    container_name: pg_db
+    environment:
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: postgres
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+
+  postgrest:
+    image: postgrest/postgrest
+    container_name: postgrest
+    depends_on:
+      - db
+    volumes:
+      - ./postgrest.conf:/etc/postgrest.conf
+    command: postgrest /etc/postgrest.conf
+    ports:
+      - "3000:3000"
