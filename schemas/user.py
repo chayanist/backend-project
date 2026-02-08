@@ -15,6 +15,7 @@ class UserUpdate(BaseModel):
     email: Optional[str] = None
     role_id: Optional[int] = None
     password: Optional[str] = None
+    status:Optional[bool] = None
 
 class UserResponse(BaseModel):
     user_id: int

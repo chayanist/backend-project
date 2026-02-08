@@ -41,6 +41,8 @@ def update_user(db: Session, user_id: int, data):
         user.role_id = data.role_id
     if data.password:
         user.password = hash_password(data.password)
+    if data.status:
+        user.status = data.status
 
     db.commit()
     return user
