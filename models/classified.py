@@ -1,16 +1,20 @@
-from sqlalchemy import Column, Integer, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, ForeignKey
+from sqlalchemy.orm import relationship
 from core.database import Base
 
 class Classified(Base):
     __tablename__ = "classified"
+    __table_args__ = {"schema": "api"}
 
-    classified_id = Column(Integer, primary_key=True)
-    unit_id = Column(Integer, ForeignKey("units.unit_id"))
-    level0 = Column(Integer)
-    level1 = Column(Integer)
-    level2 = Column(Integer)
-    level3 = Column(Integer)
-    level4 = Column(Integer)
-    level5 = Column(Integer)
-    total = Column(Integer)
-    date_time = Column(DateTime)
+    classified_id = Column(Integer, primary_key=True, index=True)
+    inspection_id = Column(Integer, ForeignKey("api.inspection.inspection_id", ondelete="CASCADE"), unique=True)
+
+    level0 = Column(Integer, default=0)
+    level1 = Column(Integer, default=0)
+    level2 = Column(Integer, default=0)
+    level3 = Column(Integer, default=0)
+    level4 = Column(Integer, default=0)
+    level5 = Column(Integer, default=0)
+    total = Column(Integer, default=0)
+
+    inspection = relationship("Inspection", back_populates="classified")

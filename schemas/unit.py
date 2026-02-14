@@ -6,3 +6,4 @@ class UnitCreate(BaseModel):
 
 class UnitUpdate(BaseModel):
     unit_name: Optional[str] = None
+    date:  Optional[str] = None

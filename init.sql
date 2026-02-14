@@ -1,108 +1,87 @@
--- =========================
--- 1. CREATE SCHEMA
--- =========================
-CREATE SCHEMA IF NOT EXISTS api;
+DROP SCHEMA IF EXISTS api CASCADE;
+CREATE SCHEMA api;
 
--- =========================
--- 2. TABLES
--- =========================
-
-CREATE TABLE api.roles (
-  role_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  role_name VARCHAR
-);
-
-CREATE TABLE api.users (
-  user_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  username VARCHAR,
-  password VARCHAR,
-  full_name VARCHAR,
-  email VARCHAR,
-  role_id INTEGER
-);
-
+-- ======================
+-- UNIT
+-- ======================
 CREATE TABLE api.units (
-  unit_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  unit_name VARCHAR
+    unit_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    unit_name VARCHAR NOT NULL
 );
 
-CREATE TABLE api.ricegrain (
-  rice_grain_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  image_path VARCHAR,
-  belly_white_level INTEGER,
-  belly_white_ratio FLOAT
-);
-
-CREATE TABLE api.classified (
-  classified_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  unit_id INTEGER,
-  level0 INTEGER,
-  level1 INTEGER,
-  level2 INTEGER,
-  level3 INTEGER,
-  level4 INTEGER,
-  level5 INTEGER,
-  total INTEGER,
-  date_time TIMESTAMP
-);
-
+-- ======================
+-- INSPECTION
+-- ======================
 CREATE TABLE api.inspection (
-  inspection_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  classified_id INTEGER,
-  date_time TIMESTAMP
+    inspection_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    unit_id INTEGER NOT NULL
+        REFERENCES api.units(unit_id) ON DELETE CASCADE,
+    date_time TIMESTAMP DEFAULT now()
 );
 
-CREATE TABLE api.inspection_detail (
-  inspection_id INTEGER,
-  rice_grain_id INTEGER,
-  PRIMARY KEY (inspection_id, rice_grain_id)
+-- ======================
+-- CLASSIFIED
+-- 1 inspection : 1 classified
+-- ======================
+CREATE TABLE api.classified (
+    classified_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    inspection_id INTEGER UNIQUE NOT NULL
+        REFERENCES api.inspection(inspection_id) ON DELETE CASCADE,
+
+    level0 INTEGER DEFAULT 0,
+    level1 INTEGER DEFAULT 0,
+    level2 INTEGER DEFAULT 0,
+    level3 INTEGER DEFAULT 0,
+    level4 INTEGER DEFAULT 0,
+    level5 INTEGER DEFAULT 0,
+    total INTEGER DEFAULT 0
 );
 
--- =========================
--- 3. CONSTRAINTS
--- =========================
+-- ======================
+-- RICEGRAIN
+-- many ricegrain : 1 inspection
+-- ======================
+CREATE TABLE api.ricegrain (
+    rice_grain_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    inspection_id INTEGER NOT NULL
+        REFERENCES api.inspection(inspection_id) ON DELETE CASCADE,
 
-ALTER TABLE api.users
-ADD CONSTRAINT user_role
-FOREIGN KEY (role_id) REFERENCES api.roles (role_id);
+    image VARCHAR,
+    belly_white_level INTEGER,
+    belly_white_ratio DOUBLE PRECISION
+);
 
-ALTER TABLE api.classified
-ADD CONSTRAINT classified_unit
-FOREIGN KEY (unit_id) REFERENCES api.units (unit_id);
+-- ======================
+-- ROLES
+-- ======================
+CREATE TABLE api.roles (
+    role_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    role_name VARCHAR
+);
 
-ALTER TABLE api.inspection
-ADD CONSTRAINT inspection_classified
-FOREIGN KEY (classified_id) REFERENCES api.classified (classified_id);
-
-ALTER TABLE api.inspection_detail
-ADD CONSTRAINT inspectiondetail_inspection
-FOREIGN KEY (inspection_id) REFERENCES api.inspection (inspection_id);
-
-ALTER TABLE api.inspection_detail
-ADD CONSTRAINT inspectiondetail_ricegrain
-FOREIGN KEY (rice_grain_id) REFERENCES api.ricegrain (rice_grain_id);
-
-COMMENT ON COLUMN api.users.password IS 'hashed password';
-
--- =========================
--- 4. CREATE API USER
--- =========================
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'api_user') THEN
-    CREATE ROLE api_user WITH LOGIN PASSWORD 'password';
-  END IF;
-END $$;
-
--- =========================
--- 5. PERMISSIONS
--- =========================
-GRANT CONNECT ON DATABASE postgres TO api_user;
+-- ======================
+-- USERS
+-- ======================
+CREATE TABLE api.users (
+    user_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    username VARCHAR,
+    password VARCHAR,
+    full_name VARCHAR,
+    email VARCHAR,
+    role_id INTEGER REFERENCES api.roles(role_id),
+    status BOOLEAN,
+    create_date TIMESTAMP
+);
+-- ======================
+-- PERMISSIONS
+-- ======================
 GRANT USAGE ON SCHEMA api TO api_user;
 
-GRANT SELECT, INSERT, UPDATE, DELETE
-ON ALL TABLES IN SCHEMA api
-TO api_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA api TO api_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA api TO api_user;
 
-ALTER DEFAULT PRIVILEGES IN SCHEMA api
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO api_user;
+
+INSERT INTO api.roles (role_name)
+VALUES 
+('admin'),
+('user')

@@ -36,11 +36,13 @@ def delete(unit_id: int, db: Session = Depends(get_db)):
 @router.get("/search")
 def search(
     keyword: str = Query("", description="search by unit name"),
+    date: str = Query("", description="search by date"),
     db: Session = Depends(get_db)
 ):
     result = search_units(
         db=db,
-        keyword=keyword
+        keyword=keyword,
+        date=date
     )
 
     return success(
