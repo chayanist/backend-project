@@ -2,6 +2,18 @@ DROP SCHEMA IF EXISTS api CASCADE;
 CREATE SCHEMA api;
 
 -- ======================
+-- CREATE ROLE FOR API (ต้องมาก่อน GRANT)
+-- ======================
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT FROM pg_roles WHERE rolname = 'api_user'
+    ) THEN
+        CREATE ROLE api_user LOGIN PASSWORD 'api_password';
+    END IF;
+END$$;
+
+-- ======================
 -- UNIT
 -- ======================
 CREATE TABLE api.units (
@@ -21,7 +33,6 @@ CREATE TABLE api.inspection (
 
 -- ======================
 -- CLASSIFIED
--- 1 inspection : 1 classified
 -- ======================
 CREATE TABLE api.classified (
     classified_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -39,7 +50,6 @@ CREATE TABLE api.classified (
 
 -- ======================
 -- RICEGRAIN
--- many ricegrain : 1 inspection
 -- ======================
 CREATE TABLE api.ricegrain (
     rice_grain_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -52,36 +62,60 @@ CREATE TABLE api.ricegrain (
 );
 
 -- ======================
--- ROLES
+-- ROLES TABLE
 -- ======================
 CREATE TABLE api.roles (
     role_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    role_name VARCHAR
+    role_name VARCHAR NOT NULL
 );
 
 -- ======================
--- USERS
+-- USERS TABLE
 -- ======================
 CREATE TABLE api.users (
     user_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    username VARCHAR,
-    password VARCHAR,
+    username VARCHAR UNIQUE NOT NULL,
+    password VARCHAR NOT NULL,
     full_name VARCHAR,
     email VARCHAR,
     role_id INTEGER REFERENCES api.roles(role_id),
-    status BOOLEAN,
-    create_date TIMESTAMP
+    status BOOLEAN DEFAULT true,
+    create_date TIMESTAMP DEFAULT now()
 );
+
 -- ======================
--- PERMISSIONS
+-- MODEL STATUS
+-- ======================
+CREATE TABLE api.modelstatus (
+    id INTEGER PRIMARY KEY,
+    status BOOLEAN NOT NULL
+);
+
+INSERT INTO api.modelstatus (id, status)
+VALUES (1, false)
+ON CONFLICT (id) DO NOTHING;
+
+-- ======================
+-- PERMISSIONS (หลัง CREATE ROLE)
 -- ======================
 GRANT USAGE ON SCHEMA api TO api_user;
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA api TO api_user;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA api TO api_user;
+GRANT SELECT, INSERT, UPDATE, DELETE
+ON ALL TABLES IN SCHEMA api
+TO api_user;
 
+GRANT USAGE, SELECT
+ON ALL SEQUENCES IN SCHEMA api
+TO api_user;
 
+ALTER DEFAULT PRIVILEGES IN SCHEMA api
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO api_user;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA api
+GRANT USAGE, SELECT ON SEQUENCES TO api_user;
+
+-- ======================
+-- SEED ROLES
+-- ======================
 INSERT INTO api.roles (role_name)
-VALUES 
-('admin'),
-('user')
+VALUES ('admin'), ('user');
