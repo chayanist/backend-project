@@ -1,3 +1,7 @@
+Front
+npm i
+npm run dev
+
 Backend
 ✅ 1. เข้าโฟลเดอร์ backend
 cd backend
@@ -13,7 +17,6 @@ pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000
 
 Database
-
 ✔ Install Docker
 sudo apt update
 sudo apt install docker.io docker-compose-plugin -y
