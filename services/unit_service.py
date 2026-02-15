@@ -104,3 +104,17 @@ def search_units(
         "items": result,
         "total": total
     }
+
+
+def dropdown_units(db: Session):
+    units = db.query(Unit.unit_id, Unit.unit_name)\
+        .order_by(Unit.unit_name.asc())\
+        .all()
+
+    return [
+        {
+            "value": u.unit_id,
+            "label": u.unit_name
+        }
+        for u in units
+    ]

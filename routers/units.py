@@ -5,7 +5,7 @@ from core.deps import get_db
 from core.response import success
 from core.messages import MessageEnum
 from services.unit_service import (
-    create_unit, get_unit, update_unit, delete_unit,search_units
+    create_unit, get_unit, update_unit, delete_unit,search_units,dropdown_units
 )
 from schemas.unit import UnitCreate, UnitUpdate
 
@@ -49,3 +49,8 @@ def search(
         data=result,
         message=MessageEnum.SUCCESS
     )
+
+@router.get("/dropdown")
+def dropdown(db: Session = Depends(get_db)):
+    items = dropdown_units(db)
+    return success(items, MessageEnum.SUCCESS)

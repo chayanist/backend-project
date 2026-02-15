@@ -30,14 +30,20 @@ def start(db: Session = Depends(get_db)):
     return success(True, MessageEnum.SUCCESS)
 
 @router.put("/stop")
-def stop(db: Session = Depends(get_db)):
+def stop(data: dict = Body(...), db: Session = Depends(get_db)):
     obj = db.query(ModelStatus).filter(ModelStatus.id == 1).first()
 
     if not obj:
-        obj = ModelStatus(id=1, status=False)
-        db.add(obj)
-    else:
-        obj.status = False
+        return success(False, "Model not initialized")
+
+    # ⭐ reset ทุกอย่าง
+    obj.status = False
+
+    # ถ้ามี column unit_id
+    if hasattr(obj, "unit_id"):
+        obj.unit_id = None
 
     db.commit()
-    return success(False, MessageEnum.SUCCESS)
+    db.refresh(obj)   # <<< สำคัญมาก
+
+    return success(True, MessageEnum.SUCCESS)
