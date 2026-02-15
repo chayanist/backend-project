@@ -17,6 +17,7 @@ END$$;
 -- UNIT
 -- ======================
 CREATE TABLE api.units (
+    create_date TIMESTAMP DEFAULT now(),
     unit_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     unit_name VARCHAR NOT NULL
 );
