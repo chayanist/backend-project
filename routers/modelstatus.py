@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends , Body
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from core.deps import get_db
@@ -31,6 +31,7 @@ def start(db: Session = Depends(get_db)):
 
 @router.put("/stop")
 def stop(data: dict = Body(...), db: Session = Depends(get_db)):
+    print("STOP BODY =", data) 
     obj = db.query(ModelStatus).filter(ModelStatus.id == 1).first()
 
     if not obj:
