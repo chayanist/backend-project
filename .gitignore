@@ -12,3 +12,4 @@ env/
 venv/
 .venv/
 ENV/
+venv_backend/
