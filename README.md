@@ -7,10 +7,15 @@ Backend
 cd backend
 
 ✅ 2. สร้าง virtual env
-python3 -m venv venv
+✅ 3. ติดตั้ง dependencies
+//LINUX
+python -m venv venv
 source venv/bin/activate
 
-✅ 3. ติดตั้ง dependencies
+//WINDOW
+python -m venv venv
+venv\Scripts\activate
+
 pip install -r requirements.txt
 
 ✅ 4. Run FastAPI

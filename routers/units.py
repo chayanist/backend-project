@@ -5,7 +5,7 @@ from core.deps import get_db
 from core.response import success
 from core.messages import MessageEnum
 from services.unit_service import (
-    create_unit, get_unit, update_unit, delete_unit,search_units,dropdown_units
+    create_unit, get_inspection_summary, get_unit, get_unit_report, update_unit, delete_unit,search_units,dropdown_units
 )
 from schemas.unit import UnitCreate, UnitUpdate
 
@@ -22,6 +22,16 @@ def detail(unit_id: int, db: Session = Depends(get_db)):
     if not unit:
         raise HTTPException(404, "not found")
     return success(unit, MessageEnum.SUCCESS)
+
+@router.get("/{unit_id}/inspections")
+def get_unit_inspections(unit_id: int, db: Session = Depends(get_db)):
+    data = get_unit_report(db, unit_id)
+    return success(data, MessageEnum.SUCCESS)
+
+@router.get("/inspection-summary/{inspection_id}")
+def inspection_summary(inspection_id: int, db: Session = Depends(get_db)):
+    data =  get_inspection_summary(db, inspection_id)
+    return success(data, MessageEnum.SUCCESS)
 
 @router.put("/update/{unit_id}")
 def update(unit_id: int, data: UnitUpdate, db: Session = Depends(get_db)):

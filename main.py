@@ -1,6 +1,5 @@
 from fastapi import FastAPI
-from routers import auth, units,roles,user,modelstatus
-import models
+from routers import auth, home, units,roles,user,modelstatus
 from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI(title="Agency Service")
 
@@ -18,6 +17,7 @@ app.include_router(units.router)
 app.include_router(roles.router)
 app.include_router(user.router)
 app.include_router(modelstatus.router)
+app.include_router(home.router)
 
 @app.get("/")
 def root():
