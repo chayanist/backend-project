@@ -33,6 +33,13 @@ def inspection_summary(inspection_id: int, db: Session = Depends(get_db)):
     data =  get_inspection_summary(db, inspection_id)
     return success(data, MessageEnum.SUCCESS)
 
+
+@router.get("/inspection-summary/ricegrains/{inspection_id}")
+def list_ricegrains(inspection_id: int, db: Session = Depends(get_db)):
+    from services.unit_service import list_ricegrains_by_inspection
+    data = list_ricegrains_by_inspection(db, inspection_id)
+    return success(data, MessageEnum.SUCCESS)
+
 @router.put("/update/{unit_id}")
 def update(unit_id: int, data: UnitUpdate, db: Session = Depends(get_db)):
     unit = update_unit(db, unit_id, data.unit_name)

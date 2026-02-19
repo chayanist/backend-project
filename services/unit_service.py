@@ -61,31 +61,268 @@ def get_unit_report(db: Session, unit_id: int):
 
 
 def get_inspection_summary(db: Session, inspection_id: int):
-
+    """
+    Summarize inspection data grouped by belly_white_ratio into 6 categories:
+    - 0: ratio = 0
+    - 1-10%: 0 < ratio <= 10
+    - 11-24%: 10 < ratio <= 24
+    - 25-50%: 24 < ratio <= 50
+    - 51-75%: 50 < ratio <= 75
+    - 75%+: ratio > 75
+    
+    Each category (except 0) is further divided into 5 sub-ranges for detailed visualization.
+    Note: belly_white_ratio is stored as percentage (0-100), not decimal (0-1)
+    """
+    
     row = (
         db.query(
             func.count(RiceGrain.rice_grain_id).label("total"),
-
-            func.count(RiceGrain.rice_grain_id).filter(RiceGrain.belly_white_level == 5).label("lv5"),
-            func.count(RiceGrain.rice_grain_id).filter(RiceGrain.belly_white_level == 4).label("lv4"),
-            func.count(RiceGrain.rice_grain_id).filter(RiceGrain.belly_white_level == 3).label("lv3"),
-            func.count(RiceGrain.rice_grain_id).filter(RiceGrain.belly_white_level == 2).label("lv2"),
-            func.count(RiceGrain.rice_grain_id).filter(RiceGrain.belly_white_level == 1).label("lv1"),
-            func.count(RiceGrain.rice_grain_id).filter(RiceGrain.belly_white_level == 0).label("lv0"),
+            
+            # Group 0: ratio = 0
+            func.sum(case((RiceGrain.belly_white_ratio == 0, 1), else_=0)).label("group_0"),
+            
+            # Group 1-10% divided into 5 sub-bars
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 0) & 
+                (RiceGrain.belly_white_ratio <= 2), 1
+            ), else_=0)).label("group_1_1"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 2) & 
+                (RiceGrain.belly_white_ratio <= 4), 1
+            ), else_=0)).label("group_1_2"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 4) & 
+                (RiceGrain.belly_white_ratio <= 6), 1
+            ), else_=0)).label("group_1_3"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 6) & 
+                (RiceGrain.belly_white_ratio <= 8), 1
+            ), else_=0)).label("group_1_4"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 8) & 
+                (RiceGrain.belly_white_ratio <= 10), 1
+            ), else_=0)).label("group_1_5"),
+            
+            # Group 11-24% divided into 5 sub-bars
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 10) & 
+                (RiceGrain.belly_white_ratio <= 13.3), 1
+            ), else_=0)).label("group_2_1"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 13.3) & 
+                (RiceGrain.belly_white_ratio <= 16.6), 1
+            ), else_=0)).label("group_2_2"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 16.6) & 
+                (RiceGrain.belly_white_ratio <= 19.9), 1
+            ), else_=0)).label("group_2_3"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 19.9) & 
+                (RiceGrain.belly_white_ratio <= 21.7), 1
+            ), else_=0)).label("group_2_4"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 21.7) & 
+                (RiceGrain.belly_white_ratio <= 24), 1
+            ), else_=0)).label("group_2_5"),
+            
+            # Group 25-50% divided into 5 sub-bars
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 24) & 
+                (RiceGrain.belly_white_ratio <= 30), 1
+            ), else_=0)).label("group_3_1"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 30) & 
+                (RiceGrain.belly_white_ratio <= 35), 1
+            ), else_=0)).label("group_3_2"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 35) & 
+                (RiceGrain.belly_white_ratio <= 40), 1
+            ), else_=0)).label("group_3_3"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 40) & 
+                (RiceGrain.belly_white_ratio <= 45), 1
+            ), else_=0)).label("group_3_4"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 45) & 
+                (RiceGrain.belly_white_ratio <= 50), 1
+            ), else_=0)).label("group_3_5"),
+            
+            # Group 51-75% divided into 5 sub-bars
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 50) & 
+                (RiceGrain.belly_white_ratio <= 59), 1
+            ), else_=0)).label("group_4_1"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 59) & 
+                (RiceGrain.belly_white_ratio <= 63), 1
+            ), else_=0)).label("group_4_2"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 63) & 
+                (RiceGrain.belly_white_ratio <= 67), 1
+            ), else_=0)).label("group_4_3"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 67) & 
+                (RiceGrain.belly_white_ratio <= 71), 1
+            ), else_=0)).label("group_4_4"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 71) & 
+                (RiceGrain.belly_white_ratio <= 75), 1
+            ), else_=0)).label("group_4_5"),
+            
+            # Group 75%+ divided into 5 sub-bars
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 75) & 
+                (RiceGrain.belly_white_ratio <= 82), 1
+            ), else_=0)).label("group_5_1"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 82) & 
+                (RiceGrain.belly_white_ratio <= 87), 1
+            ), else_=0)).label("group_5_2"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 87) & 
+                (RiceGrain.belly_white_ratio <= 91), 1
+            ), else_=0)).label("group_5_3"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 91) & 
+                (RiceGrain.belly_white_ratio <= 96), 1
+            ), else_=0)).label("group_5_4"),
+            func.sum(case((
+                (RiceGrain.belly_white_ratio > 96), 1
+            ), else_=0)).label("group_5_5"),
         )
         .filter(RiceGrain.inspection_id == inspection_id)
         .one()
     )
 
+    # Calculate group totals
+    group_0 = int(row.group_0 or 0)
+    
+    group_1_bars = [
+        int(row.group_1_1 or 0),
+        int(row.group_1_2 or 0),
+        int(row.group_1_3 or 0),
+        int(row.group_1_4 or 0),
+        int(row.group_1_5 or 0),
+    ]
+    group_1_total = sum(group_1_bars)
+    
+    group_2_bars = [
+        int(row.group_2_1 or 0),
+        int(row.group_2_2 or 0),
+        int(row.group_2_3 or 0),
+        int(row.group_2_4 or 0),
+        int(row.group_2_5 or 0),
+    ]
+    group_2_total = sum(group_2_bars)
+    
+    group_3_bars = [
+        int(row.group_3_1 or 0),
+        int(row.group_3_2 or 0),
+        int(row.group_3_3 or 0),
+        int(row.group_3_4 or 0),
+        int(row.group_3_5 or 0),
+    ]
+    group_3_total = sum(group_3_bars)
+    
+    group_4_bars = [
+        int(row.group_4_1 or 0),
+        int(row.group_4_2 or 0),
+        int(row.group_4_3 or 0),
+        int(row.group_4_4 or 0),
+        int(row.group_4_5 or 0),
+    ]
+    group_4_total = sum(group_4_bars)
+    
+    group_5_bars = [
+        int(row.group_5_1 or 0),
+        int(row.group_5_2 or 0),
+        int(row.group_5_3 or 0),
+        int(row.group_5_4 or 0),
+        int(row.group_5_5 or 0),
+    ]
+    group_5_total = sum(group_5_bars)
+
     return {
-        "lv5": int(row.lv5 or 0),
-        "lv4": int(row.lv4 or 0),
-        "lv3": int(row.lv3 or 0),
-        "lv2": int(row.lv2 or 0),
-        "lv1": int(row.lv1 or 0),
-        "lv0": int(row.lv0 or 0),
+        "summary": {
+            "0": {
+                "label": "0%",
+                "count": group_0,
+                "percentage": round((group_0 / int(row.total or 1)) * 100, 2)
+            },
+            "1": {
+                "label": "1-10%",
+                "count": group_1_total,
+                "percentage": round((group_1_total / int(row.total or 1)) * 100, 2),
+                "bars": group_1_bars,
+                "labels": ["0-2%", "2-4%", "4-6%", "6-8%", "8-10%"]
+            },
+            "2": {
+                "label": "11-24%",
+                "count": group_2_total,
+                "percentage": round((group_2_total / int(row.total or 1)) * 100, 2),
+                "bars": group_2_bars,
+                "labels": ["11-13.3%", "13.3-16.6%", "16.6-19.9%", "19.9-21.7%", "21.7-24%"]
+            },
+            "3": {
+                "label": "25-50%",
+                "count": group_3_total,
+                "percentage": round((group_3_total / int(row.total or 1)) * 100, 2),
+                "bars": group_3_bars,
+                "labels": ["25-30%", "30-35%", "35-40%", "40-45%", "45-50%"]
+            },
+            "4": {
+                "label": "51-75%",
+                "count": group_4_total,
+                "percentage": round((group_4_total / int(row.total or 1)) * 100, 2),
+                "bars": group_4_bars,
+                "labels": ["50-59%", "59-63%", "63-67%", "67-71%", "71-75%"]
+            },
+            "5": {
+                "label": "75%+",
+                "count": group_5_total,
+                "percentage": round((group_5_total / int(row.total or 1)) * 100, 2),
+                "bars": group_5_bars,
+                "labels": ["75-82%", "82-87%", "87-91%", "91-96%", "96-100%"]
+            }
+        },
         "total": int(row.total or 0),
     }
+
+
+def convert_path_to_url(file_path: str):
+    base_path = "/home/ricebelly/riceBellyProjectV4/ai_engine/store/"
+    return file_path.replace(base_path, "/images/")
+
+def list_ricegrains_by_inspection(db: Session, inspection_id: int):
+    """Return rice grains for an inspection with id, belly_white_ratio and image path.
+
+    Args:
+        db: SQLAlchemy Session
+        inspection_id: inspection id to filter rice grains
+
+    Returns:
+        List of dicts with keys: rice_grain_id, belly_white_ratio, image
+    """
+    rows = (
+        db.query(
+            RiceGrain.rice_grain_id,
+            RiceGrain.belly_white_ratio,
+            RiceGrain.image,
+        )
+        .filter(RiceGrain.inspection_id == inspection_id)
+        .order_by(RiceGrain.rice_grain_id.asc())
+        .all()
+    )
+
+    return [
+        {
+            "rice_grain_id": r.rice_grain_id,
+            "belly_white_ratio": float(r.belly_white_ratio) if r.belly_white_ratio is not None else None,
+            "image": f"http://localhost:8000{convert_path_to_url(r.image)}",
+        }
+        for r in rows
+    ]
+
 
 def update_unit(db: Session, unit_id: int, unit_name: str):
     unit = get_unit(db, unit_id)

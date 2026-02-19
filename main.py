@@ -1,7 +1,15 @@
 from fastapi import FastAPI
 from routers import auth, home, units,roles,user,modelstatus
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
 app = FastAPI(title="Agency Service")
+
+# app.mount(
+#     "/images",
+#     StaticFiles(directory="/home/ricebelly/riceBellyProjectV4/ai_engine/store"),
+#     name="images",
+# )
 
 app.add_middleware(
     CORSMiddleware,
