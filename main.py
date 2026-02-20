@@ -15,7 +15,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=".*", 
     allow_origins=["*"],        # 👈 allow ALL origins
-    allow_credentials=True,
+    # disable credentials with wildcard origins to avoid 403 on WebSocket handshake
+    allow_credentials=False,
     allow_methods=["*"],        # 👈 allow ALL HTTP methods
     allow_headers=["*"],        # 👈 allow ALL headers
 )

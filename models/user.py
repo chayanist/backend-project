@@ -14,3 +14,4 @@ class User(Base):
     role_id = Column(Integer)
     status = Column(Boolean)
     create_date = Column(DateTime)
+    default = Column(Boolean, default=False)
