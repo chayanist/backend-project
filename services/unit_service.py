@@ -4,8 +4,14 @@ from models.unit import Unit
 from models.inspection import Inspection
 from models.ricegrain import RiceGrain
 from sqlalchemy import func, case
-from datetime import datetime, time
+from datetime import datetime
+import shutil
+import os
+from pathlib import Path
 
+# กำหนด Path หลักของโปรเจกต์ (ปรับให้ตรงกับเครื่องของคุณ)
+BASE_DIR = Path(__file__).resolve().parents[1] 
+STORE_DIR = BASE_DIR / "ai_engine" / "store"
 
 def create_unit(db: Session, unit_name: str):
     unit = Unit(unit_name=unit_name)
@@ -355,10 +361,44 @@ def update_unit(db: Session, unit_id: int, unit_name: str):
 
 
 def delete_unit(db: Session, unit_id: int):
+    # 1. ค้นหา Unit
     unit = get_unit(db, unit_id)
-    if unit:
+    if not unit:
+        return
+
+    try:
+        # 2. หาโฟลเดอร์ทั้งหมดที่เกี่ยวข้องกับ Unit นี้
+        # โดยเชื่อมจาก Unit -> Inspection -> RiceGrain เพื่อเอา path รูปภาพ
+        inspections = db.query(Inspection).filter(Inspection.unit_id == unit_id).all()
+        
+        folders_to_delete = set()
+        for insp in inspections:
+            # หาเมล็ดข้าวเมล็ดแรกในแต่ละ inspection เพื่อระบุโฟลเดอร์
+            first_grain = db.query(RiceGrain).filter(RiceGrain.inspection_id == insp.inspection_id).first()
+            if first_grain and first_grain.image:
+                # แปลง path จาก string เป็น Path object และหา parent folder (session folder)
+                folder_path = Path(first_grain.image).parent
+                if folder_path.exists():
+                    folders_to_delete.add(folder_path)
+
+        # 3. ลบโฟลเดอร์ออกจาก Disk
+        for folder in folders_to_delete:
+            try:
+                shutil.rmtree(folder)
+                print(f"[System] Deleted folder: {folder}")
+            except Exception as e:
+                print(f"[Error] Could not delete folder {folder}: {e}")
+
+        # 4. ลบข้อมูลออกจาก Database
+        # หมายเหตุ: SQL ของคุณตั้ง ON DELETE CASCADE ไว้แล้ว 
+        # การลบ unit จะลบ inspection และ ricegrain อัตโนมัติ
         db.delete(unit)
         db.commit()
+        
+    except Exception as e:
+        db.rollback()
+        print(f"[Error] Process failed: {e}")
+        raise e
 
 def search_units(
     db: Session,
