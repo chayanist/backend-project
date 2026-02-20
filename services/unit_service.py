@@ -4,7 +4,7 @@ from models.unit import Unit
 from models.inspection import Inspection
 from models.ricegrain import RiceGrain
 from sqlalchemy import func, case
-from datetime import datetime
+from datetime import datetime, time
 import shutil
 import os
 from pathlib import Path
