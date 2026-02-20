@@ -90,6 +90,7 @@ CREATE TABLE api.users (
 CREATE TABLE api.modelstatus (
     id INTEGER PRIMARY KEY,
     status BOOLEAN NOT NULL
+    unit_id INTEGER
 );
 
 INSERT INTO api.modelstatus (id, status)
@@ -120,3 +121,4 @@ GRANT USAGE, SELECT ON SEQUENCES TO api_user;
 -- ======================
 INSERT INTO api.roles (role_name)
 VALUES ('admin'), ('user');
+INSERT INTO api.units (unit_name) VALUES ('Default Machine');

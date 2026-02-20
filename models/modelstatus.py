@@ -8,4 +8,4 @@ class ModelStatus(Base):
 
     id = Column(Integer, primary_key=True)
     status = Column(Boolean, nullable=False)
-   
+    unit_id = Column(Integer, nullable=True)
