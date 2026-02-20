@@ -4,7 +4,7 @@ from models.unit import Unit
 from models.inspection import Inspection
 from models.ricegrain import RiceGrain
 from sqlalchemy import func, case
-from datetime import datetime
+from datetime import datetime, time
 
 
 def create_unit(db: Session, unit_name: str):
@@ -363,20 +363,33 @@ def delete_unit(db: Session, unit_id: int):
 def search_units(
     db: Session,
     keyword: str = "",
-    date: str = ""
+    date_min: str = "",
+    date_max: str = "",
 ):
     # -------------------------
     # MAIN QUERY
     # -------------------------
+    # subquery: latest inspection datetime per unit (used to show latest inspection date)
+    insp_max = (
+        db.query(
+            Inspection.unit_id.label("unit_id"),
+            func.max(Inspection.date_time).label("max_dt")
+        )
+        .group_by(Inspection.unit_id)
+        .subquery()
+    )
+
     data_query = (
         db.query(
             Unit.unit_id,
             Unit.unit_name,
-            func.count(RiceGrain.rice_grain_id).label("ricegrain_count")
+            func.count(RiceGrain.rice_grain_id).label("ricegrain_count"),
+            insp_max.c.max_dt.label("datetimeInspection")
         )
+        .outerjoin(insp_max, insp_max.c.unit_id == Unit.unit_id)
         .outerjoin(Inspection, Inspection.unit_id == Unit.unit_id)
         .outerjoin(RiceGrain, RiceGrain.inspection_id == Inspection.inspection_id)
-        .group_by(Unit.unit_id, Unit.unit_name)
+        .group_by(Unit.unit_id, Unit.unit_name, insp_max.c.max_dt)
     )
 
     # -------------------------
@@ -392,18 +405,45 @@ def search_units(
         count_query = count_query.filter(Unit.unit_name.ilike(f"%{keyword}%"))
 
     # -------------------------
-    # FILTER: date
+    # FILTER: date range -> use latest inspection per unit within range
     # -------------------------
-    if date:
-        date_obj = datetime.strptime(date, "%Y-%m-%d").date()
+    if date_min or date_max:
+        start_dt = None
+        end_dt = None
+        if date_min:
+            dmin = datetime.strptime(date_min, "%Y-%m-%d").date()
+            start_dt = datetime.combine(dmin, time.min)
+        if date_max:
+            dmax = datetime.strptime(date_max, "%Y-%m-%d").date()
+            end_dt = datetime.combine(dmax, time.max)
 
-        data_query = data_query.filter(
-            func.date(Inspection.date_time) == date_obj
+        insp_q = db.query(
+            Inspection.unit_id.label("unit_id"),
+            func.max(Inspection.date_time).label("max_dt")
+        )
+        if start_dt:
+            insp_q = insp_q.filter(Inspection.date_time >= start_dt)
+        if end_dt:
+            insp_q = insp_q.filter(Inspection.date_time <= end_dt)
+        insp_q = insp_q.group_by(Inspection.unit_id).subquery()
+
+        # join units to their latest inspection in range, then ricegrains for that inspection
+        data_query = (
+            db.query(
+                Unit.unit_id,
+                Unit.unit_name,
+                func.count(RiceGrain.rice_grain_id).label("ricegrain_count"),
+                Inspection.date_time.label("datetimeInspection")
+            )
+            .join(insp_q, insp_q.c.unit_id == Unit.unit_id)
+            .join(Inspection, (Inspection.unit_id == insp_q.c.unit_id) & (Inspection.date_time == insp_q.c.max_dt))
+            .outerjoin(RiceGrain, RiceGrain.inspection_id == Inspection.inspection_id)
+            .group_by(Unit.unit_id, Unit.unit_name, Inspection.date_time)
         )
 
         count_query = (
-            count_query.join(Inspection, Inspection.unit_id == Unit.unit_id)
-            .filter(func.date(Inspection.date_time) == date_obj)
+            db.query(Unit)
+            .join(insp_q, insp_q.c.unit_id == Unit.unit_id)
             .distinct()
         )
 
@@ -422,7 +462,8 @@ def search_units(
         {
             "unit_id": item.unit_id,
             "unit_name": item.unit_name,
-            "ricegrain_count": int(item.ricegrain_count or 0)
+            "ricegrain_count": int(item.ricegrain_count or 0),
+            "datetimeInspection": item.datetimeInspection.strftime("%d/%m/%Y") if hasattr(item, "datetimeInspection") and item.datetimeInspection else None
         }
         for item in items
     ]

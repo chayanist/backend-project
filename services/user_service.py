@@ -41,7 +41,8 @@ def update_user(db: Session, user_id: int, data):
         user.role_id = data.role_id
     if data.password:
         user.password = hash_password(data.password)
-    if data.status:
+    # status is a boolean; check explicitly for None so False is accepted
+    if getattr(data, 'status', None) is not None:
         user.status = data.status
 
     db.commit()
