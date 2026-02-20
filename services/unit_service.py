@@ -293,7 +293,7 @@ def convert_path_to_url(file_path: str):
     base_path = "/home/ricebelly/riceBellyProjectV4/ai_engine/store/"
     return file_path.replace(base_path, "/images/")
 
-def list_ricegrains_by_inspection(db: Session, inspection_id: int):
+def list_ricegrains_by_inspection(db: Session, inspection_id: int, level: int = None):
     """Return rice grains for an inspection with id, belly_white_ratio and image path.
 
     Args:
@@ -303,16 +303,38 @@ def list_ricegrains_by_inspection(db: Session, inspection_id: int):
     Returns:
         List of dicts with keys: rice_grain_id, belly_white_ratio, image
     """
-    rows = (
+    query = (
         db.query(
             RiceGrain.rice_grain_id,
             RiceGrain.belly_white_ratio,
             RiceGrain.image,
         )
         .filter(RiceGrain.inspection_id == inspection_id)
-        .order_by(RiceGrain.rice_grain_id.asc())
-        .all()
     )
+
+    # Apply level filtering based on belly_white_ratio ranges
+    # Levels mapping:
+    # 0: ratio == 0
+    # 1: 0 < ratio <= 10
+    # 2: 10 < ratio <= 24
+    # 3: 24 < ratio <= 50
+    # 4: 50 < ratio <= 75
+    # 5: ratio > 75
+    if level is not None:
+        if level == 0:
+            query = query.filter(RiceGrain.belly_white_ratio == 0)
+        elif level == 1:
+            query = query.filter(RiceGrain.belly_white_ratio > 0, RiceGrain.belly_white_ratio <= 10)
+        elif level == 2:
+            query = query.filter(RiceGrain.belly_white_ratio > 10, RiceGrain.belly_white_ratio <= 24)
+        elif level == 3:
+            query = query.filter(RiceGrain.belly_white_ratio > 24, RiceGrain.belly_white_ratio <= 50)
+        elif level == 4:
+            query = query.filter(RiceGrain.belly_white_ratio > 50, RiceGrain.belly_white_ratio <= 75)
+        elif level == 5:
+            query = query.filter(RiceGrain.belly_white_ratio > 75)
+
+    rows = query.order_by(RiceGrain.rice_grain_id.asc()).all()
 
     return [
         {

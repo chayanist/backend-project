@@ -1,7 +1,7 @@
 # routers/unit.py
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from core.deps import get_db
+from core.deps import get_db, get_current_user
 from core.response import success
 from core.messages import MessageEnum
 from services.unit_service import (
@@ -9,7 +9,7 @@ from services.unit_service import (
 )
 from schemas.unit import UnitCreate, UnitUpdate
 
-router = APIRouter(prefix="/units", tags=["Units"])
+router = APIRouter(prefix="/units", tags=["Units"], dependencies=[Depends(get_current_user)])
 
 @router.post("/create")
 def create(data: UnitCreate, db: Session = Depends(get_db)):
@@ -35,9 +35,13 @@ def inspection_summary(inspection_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/inspection-summary/ricegrains/{inspection_id}")
-def list_ricegrains(inspection_id: int, db: Session = Depends(get_db)):
+def list_ricegrains(
+    inspection_id: int,
+    level: int = Query(None, description="optional level filter (0-5)", ge=0, le=5),
+    db: Session = Depends(get_db)
+):
     from services.unit_service import list_ricegrains_by_inspection
-    data = list_ricegrains_by_inspection(db, inspection_id)
+    data = list_ricegrains_by_inspection(db, inspection_id, level)
     return success(data, MessageEnum.SUCCESS)
 
 @router.put("/update/{unit_id}")
