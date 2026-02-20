@@ -3,19 +3,23 @@ import json
 import shutil
 import subprocess
 import threading
+import asyncio
 from pathlib import Path
-from fastapi import APIRouter, Depends, Body
+from fastapi import APIRouter, Depends, Body, WebSocket, WebSocketDisconnect
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 # Import ส่วนจัดการ Database และ Model
 from core.database import SessionLocal  # ใช้สร้าง Session ใน Background Thread
 from core.deps import get_db, get_current_user
+from jose import jwt, JWTError
+from core.config import SECRET_KEY, ALGORITHM
+from models.user import User
 from core.messages import MessageEnum
 from core.response import success
 from models.modelstatus import ModelStatus
 
-router = APIRouter(prefix="/model", tags=["model"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/model", tags=["model"])
 
 # ================= ⚙️ CONFIGURATION =================
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -103,14 +107,66 @@ def clear_signal():
             print(f"[System] Signal file cleared.")
     except Exception as e:
         print(f"[System] Error clearing signal file: {e}")
+
+
+# WebSocket broadcast state
+ws_connections = set()
+broadcast_loop = None
+
+
+@router.websocket("/stream", dependencies=[])
+async def stream_websocket(websocket: WebSocket):
+    """WebSocket endpoint to stream AI subprocess output in real-time.
+
+    Client must provide a valid token as query param: /model/stream?token=<jwt>
+    """
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=1008)
+        return
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            await websocket.close(code=1008)
+            return
+
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(User.username == username).first()
+        finally:
+            db.close()
+        if not user:
+            await websocket.close(code=1008)
+            return
+    except JWTError:
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
+
+    global broadcast_loop
+    if broadcast_loop is None:
+        broadcast_loop = asyncio.get_event_loop()
+
+    ws_connections.add(websocket)
+    try:
+        await asyncio.Future()
+    except asyncio.CancelledError:
+        pass
+    except WebSocketDisconnect:
+        pass
+    finally:
+        ws_connections.discard(websocket)
 # ================= 🚀 [API ROUTERS] =================
 @router.get("/status")
-def status(db: Session = Depends(get_db)):
+def status(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     obj = db.query(ModelStatus).first()
     return success(obj.status if obj else None, MessageEnum.SUCCESS)
 
 @router.put("/start")
-def start(db: Session = Depends(get_db)):
+def start(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """สั่งเริ่มทำงาน AI"""
     # ลบไฟล์สัญญาณหยุดถ้ามีค้างอยู่
     clear_signal()
@@ -128,7 +184,39 @@ def start(db: Session = Depends(get_db)):
         try:
             # รัน AI Engine ผ่าน Subprocess
             python_exe = str(AI_DIR / "venv_ai" / "bin" / "python")
-            subprocess.run([python_exe, "main_ai.py"], cwd=str(AI_DIR))
+
+            # Start subprocess and stream its stdout/stderr
+            proc = subprocess.Popen(
+                [python_exe, "main_ai.py"],
+                cwd=str(AI_DIR),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=1,
+                text=True,
+            )
+
+            try:
+                for raw_line in proc.stdout:
+                    if raw_line is None:
+                        continue
+                    line = raw_line.rstrip()
+                    # print to server terminal
+                    print(line)
+
+                    # broadcast to connected websocket clients (if any)
+                    global broadcast_loop, ws_connections
+                    if broadcast_loop and ws_connections:
+                        for ws in list(ws_connections):
+                            try:
+                                asyncio.run_coroutine_threadsafe(ws.send_text(line), broadcast_loop)
+                            except Exception:
+                                try:
+                                    ws.close()
+                                except Exception:
+                                    pass
+                                ws_connections.discard(ws)
+            finally:
+                proc.wait()
         finally:
             # 🚀 2. เมื่อ AI จบการทำงาน (ไม่ว่าจะจบแบบปกติ หรือถูกสั่ง Stop)
             # ต้องล้าง Signal ทันที เพื่อไม่ให้ค้างคาในการรันครั้งหน้า
@@ -148,7 +236,7 @@ def start(db: Session = Depends(get_db)):
     return success(True, MessageEnum.SUCCESS)
 
 @router.put("/stop")
-def stop(data: dict = Body(...), db: Session = Depends(get_db)):
+def stop(data: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """สั่งหยุด AI พร้อมส่ง unit_id มาบันทึก"""
     unit_id = data.get("unit_id")
     print("STOP BODY =", data)
