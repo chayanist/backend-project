@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from core.deps import get_db
+from core.deps import get_db, get_current_user
 from core.response import success
 from core.messages import MessageEnum
 from models.ricegrain import RiceGrain
 
-router = APIRouter(prefix="/home", tags=["home"])
+router = APIRouter(prefix="/home", tags=["home"], dependencies=[Depends(get_current_user)])
 
 COLORS = {
     0: "#f70808ff",

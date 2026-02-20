@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from core.deps import get_db
+from core.deps import get_db, get_current_user
 from core.response import success
 from core.messages import MessageEnum
 from schemas.user import UserCreate, UserUpdate
@@ -8,7 +8,7 @@ from services.user_service import (
     create_user, get_user, search_user, update_user, delete_user
 )
 
-router = APIRouter(prefix="/users", tags=["Users"])
+router = APIRouter(prefix="/users", tags=["Users"], dependencies=[Depends(get_current_user)])
 
 @router.post("/create")
 def create(data: UserCreate, db: Session = Depends(get_db)):

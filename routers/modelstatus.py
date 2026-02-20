@@ -9,13 +9,13 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 # Import ส่วนจัดการ Database และ Model
-from core.database import SessionLocal 
-from core.deps import get_db
+from core.database import SessionLocal  # ใช้สร้าง Session ใน Background Thread
+from core.deps import get_db, get_current_user
 from core.messages import MessageEnum
 from core.response import success
 from models.modelstatus import ModelStatus
 
-router = APIRouter(prefix="/model", tags=["model"])
+router = APIRouter(prefix="/model", tags=["model"], dependencies=[Depends(get_current_user)])
 
 # ================= ⚙️ CONFIGURATION =================
 BASE_DIR = Path(__file__).resolve().parents[2]
