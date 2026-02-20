@@ -5,11 +5,11 @@ from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="Agency Service")
 
-# app.mount(
-#     "/images",
-#     StaticFiles(directory="/home/ricebelly/riceBellyProjectV4/ai_engine/store"),
-#     name="images",
-# )
+app.mount(
+    "/images",
+    StaticFiles(directory="/home/ricebelly/riceBellyProjectV4/ai_engine/store"),
+    name="images",
+)
 
 app.add_middleware(
     CORSMiddleware,
