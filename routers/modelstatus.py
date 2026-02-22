@@ -5,18 +5,19 @@ import subprocess
 import threading
 import asyncio
 from pathlib import Path
+
 from fastapi import APIRouter, Depends, Body, WebSocket, WebSocketDisconnect
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from jose import jwt, JWTError
 
 # Import ส่วนจัดการ Database และ Model
 from core.database import SessionLocal  # ใช้สร้าง Session ใน Background Thread
 from core.deps import get_db, get_current_user
-from jose import jwt, JWTError
 from core.config import SECRET_KEY, ALGORITHM
-from models.user import User
 from core.messages import MessageEnum
 from core.response import success
+from models.user import User
 from models.modelstatus import ModelStatus
 
 router = APIRouter(prefix="/model", tags=["model"])
@@ -28,50 +29,67 @@ RESULTS_DIR = AI_DIR / "results"
 STORE_ROOT = AI_DIR / "store"
 SIGNAL_FILE = AI_DIR / "stop_ai.signal"
 
-# ================= 🧹 [SWEEPER] ย้ายข้อมูลจาก JSON ลง DB =================
+# WebSocket broadcast state
+ws_connections = set()
+broadcast_loop = None
+
+# ================= 🧹 [SWEEPER] Helper Functions =================
+
 def data_sweeper():
     """ทำหน้าที่กวาดไฟล์ JSON ใน results/ เข้า Database"""
     try:
-        if not RESULTS_DIR.exists(): return
-        all_sessions = [d for d in RESULTS_DIR.iterdir() if d.is_dir()]
-        if not all_sessions: return
+        if not RESULTS_DIR.exists():
+            return
         
+        all_sessions = [d for d in RESULTS_DIR.iterdir() if d.is_dir()]
+        if not all_sessions:
+            return
+
         db = SessionLocal()
         try:
             # 🚀 1. ดึง unit_id ล่าสุดที่เพิ่งบันทึกไว้ตอน Stop
             status_obj = db.query(ModelStatus).filter(ModelStatus.id == 1).first()
             current_unit_id = status_obj.unit_id if (status_obj and status_obj.unit_id) else 1
-            
-            # 🚀 2. รีเซ็ต Sequence ของ Primary Key (กัน Error ID ซ้ำ)
+
+            # 🚀 2. รีเซ็ต Sequence ของ Primary Key ทั้งสองตาราง
             db.execute(text("""
+                -- รีเซ็ตของ ricegrain (ที่มีอยู่แล้ว)
                 SELECT setval(
-                    pg_get_serial_sequence('api.ricegrain', 'rice_grain_id'), 
-                    COALESCE(MAX(rice_grain_id), 0) + 1, 
+                    pg_get_serial_sequence('api.ricegrain', 'rice_grain_id'),
+                    COALESCE(MAX(rice_grain_id), 0) + 1,
                     false
                 ) FROM api.ricegrain;
+
+                -- เพิ่ม: รีเซ็ตของ inspection (ตัวปัญหา)
+                SELECT setval(
+                    pg_get_serial_sequence('api.inspection', 'inspection_id'),
+                    COALESCE(MAX(inspection_id), 0) + 1,
+                    false
+                ) FROM api.inspection;
             """))
 
             for session_dir in all_sessions:
                 json_path = session_dir / "data.json"
-                if not json_path.exists(): continue
-                
+                if not json_path.exists():
+                    continue
+
                 with open(json_path, 'r', encoding='utf-8') as f:
                     grain_data = json.load(f)
 
                 # 🚀 3. สร้างรายการ Inspection ใหม่
                 result = db.execute(text("""
-                    INSERT INTO api.inspection (date_time, unit_id) 
+                    INSERT INTO api.inspection (date_time, unit_id)
                     VALUES (NOW(), :unit_id)
                     RETURNING inspection_id
                 """), {"unit_id": current_unit_id})
+                
                 new_insp_id = result.fetchone()[0]
 
                 # 🚀 4. บันทึกข้อมูลเมล็ดข้าวแต่ละเมล็ด
                 for item in grain_data:
                     file_name = os.path.basename(item["Image Path"])
-                    # กำหนด Path ใหม่ที่จะย้ายไปเก็บถาวร
                     final_image_path = str(STORE_ROOT / session_dir.name / file_name)
-                    
+
                     db.execute(text("""
                         INSERT INTO api.ricegrain (inspection_id, image, belly_white_level, belly_white_ratio)
                         VALUES (:insp_id, :img, :lvl, :ratio)
@@ -82,12 +100,13 @@ def data_sweeper():
                         "ratio": item.get("bellyWhiteRatio", 0.0)
                     })
 
-                db.commit() 
+                db.commit()
 
                 # 🚀 5. ย้ายโฟลเดอร์จาก results/ ไปยัง store/ (เก็บถาวร)
                 dest_session_dir = STORE_ROOT / session_dir.name
                 STORE_ROOT.mkdir(parents=True, exist_ok=True)
-                if dest_session_dir.exists(): 
+                
+                if dest_session_dir.exists():
                     shutil.rmtree(dest_session_dir)
                 shutil.move(str(session_dir), str(dest_session_dir))
 
@@ -104,22 +123,15 @@ def clear_signal():
     try:
         if SIGNAL_FILE.exists():
             os.remove(SIGNAL_FILE)
-            print(f"[System] Signal file cleared.")
+            print("[System] Signal file cleared.")
     except Exception as e:
         print(f"[System] Error clearing signal file: {e}")
 
+# ================= 🔌 [WEBSOCKET] =================
 
-# WebSocket broadcast state
-ws_connections = set()
-broadcast_loop = None
-
-
-@router.websocket("/stream", dependencies=[])
+@router.websocket("/stream")
 async def stream_websocket(websocket: WebSocket):
-    """WebSocket endpoint to stream AI subprocess output in real-time.
-
-    Client must provide a valid token as query param: /model/stream?token=<jwt>
-    """
+    """WebSocket stream AI subprocess output in real-time."""
     token = websocket.query_params.get("token")
     if not token:
         await websocket.close(code=1008)
@@ -137,41 +149,40 @@ async def stream_websocket(websocket: WebSocket):
             user = db.query(User).filter(User.username == username).first()
         finally:
             db.close()
+
         if not user:
             await websocket.close(code=1008)
             return
+            
     except JWTError:
         await websocket.close(code=1008)
         return
 
     await websocket.accept()
-
+    
     global broadcast_loop
-    if broadcast_loop is None:
-        broadcast_loop = asyncio.get_event_loop()
-
+    broadcast_loop = asyncio.get_event_loop()
     ws_connections.add(websocket)
+    
     try:
-        await asyncio.Future()
-    except asyncio.CancelledError:
-        pass
+        while True:
+            await websocket.receive_text()
     except WebSocketDisconnect:
-        pass
+        print("[WS] Web terminal disconnected.")
     finally:
         ws_connections.discard(websocket)
+
 # ================= 🚀 [API ROUTERS] =================
+
 @router.get("/status")
-def status(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_model_status(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     obj = db.query(ModelStatus).first()
     return success(obj.status if obj else None, MessageEnum.SUCCESS)
 
 @router.put("/start")
 def start(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """สั่งเริ่มทำงาน AI"""
-    # ลบไฟล์สัญญาณหยุดถ้ามีค้างอยู่
     clear_signal()
 
-    # อัปเดตสถานะใน DB ว่ากำลังทำงาน
     obj = db.query(ModelStatus).filter(ModelStatus.id == 1).first()
     if not obj:
         obj = ModelStatus(id=1, status=True)
@@ -181,11 +192,9 @@ def start(db: Session = Depends(get_db), current_user: User = Depends(get_curren
     db.commit()
 
     def run_ai_task():
+        global broadcast_loop, ws_connections
         try:
-            # รัน AI Engine ผ่าน Subprocess
             python_exe = str(AI_DIR / "venv_ai" / "bin" / "python")
-
-            # Start subprocess and stream its stdout/stderr
             proc = subprocess.Popen(
                 [python_exe, "main_ai.py"],
                 cwd=str(AI_DIR),
@@ -195,62 +204,69 @@ def start(db: Session = Depends(get_db), current_user: User = Depends(get_curren
                 text=True,
             )
 
-            try:
-                for raw_line in proc.stdout:
-                    if raw_line is None:
-                        continue
-                    line = raw_line.rstrip()
-                    # print to server terminal
-                    print(line)
+            for raw_line in proc.stdout:
+                line = raw_line.rstrip()
+                print(line)
+                if broadcast_loop and ws_connections:
+                    for ws in list(ws_connections):
+                        try:
+                            asyncio.run_coroutine_threadsafe(ws.send_text(line), broadcast_loop)
+                        except:
+                            ws_connections.discard(ws)
+            
+            proc.wait() # รอจนกว่า Subprocess จะจบจริงๆ
 
-                    # broadcast to connected websocket clients (if any)
-                    global broadcast_loop, ws_connections
-                    if broadcast_loop and ws_connections:
-                        for ws in list(ws_connections):
-                            try:
-                                asyncio.run_coroutine_threadsafe(ws.send_text(line), broadcast_loop)
-                            except Exception:
-                                try:
-                                    ws.close()
-                                except Exception:
-                                    pass
-                                ws_connections.discard(ws)
-            finally:
-                proc.wait()
+        except Exception as e:
+            print(f"[Thread Error] {e}")
+        
         finally:
-            # 🚀 2. เมื่อ AI จบการทำงาน (ไม่ว่าจะจบแบบปกติ หรือถูกสั่ง Stop)
-            # ต้องล้าง Signal ทันที เพื่อไม่ให้ค้างคาในการรันครั้งหน้า
+            # --- ขั้นตอนหลังจาก AI หยุด (กด Stop หรือจบเอง) ---
+            print("[System] Finalizing process...")
+            
+            # 1. แจ้ง Terminal หน้าเว็บ
+            if broadcast_loop and ws_connections:
+                for ws in list(ws_connections):
+                    asyncio.run_coroutine_threadsafe(
+                        ws.send_text("\n[SYSTEM] AI Stopped. Saving data to database..."), 
+                        broadcast_loop
+                    )
+
+            # 2. จัดการข้อมูล (Sweeper)
+            data_sweeper() 
             clear_signal()
             
-            # กวาดข้อมูลลง DB
-            data_sweeper() 
-            
-            # อัปเดตสถานะกลับเป็น False เมื่อทุกอย่างเสร็จสิ้น (กรณี AI จบงานเอง)
+            # 3. อัปเดตสถานะใน DB เป็น False (เพื่อให้ปุ่มหน้าเว็บเปลี่ยนสี)
             with SessionLocal() as db_session:
                 status_obj = db_session.query(ModelStatus).filter(ModelStatus.id == 1).first()
                 if status_obj:
                     status_obj.status = False
                     db_session.commit()
 
+            # 4. ส่งสัญญาณสุดท้ายบอกหน้าเว็บว่า "เสร็จสิ้นทุกอย่างแล้ว"
+            if broadcast_loop and ws_connections:
+                for ws in list(ws_connections):
+                    try:
+                        asyncio.run_coroutine_threadsafe(ws.send_text("PROCESS_COMPLETE"), broadcast_loop)
+                    except:
+                        pass
+
     threading.Thread(target=run_ai_task, daemon=True).start()
     return success(True, MessageEnum.SUCCESS)
 
 @router.put("/stop")
-def stop(data: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """สั่งหยุด AI พร้อมส่ง unit_id มาบันทึก"""
+def stop_ai(data: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """สั่งหยุด AI โดยส่งสัญญาณผ่านไฟล์"""
     unit_id = data.get("unit_id")
-    print("STOP BODY =", data)
     
     obj = db.query(ModelStatus).filter(ModelStatus.id == 1).first()
     if obj:
-        obj.status = False
-        obj.unit_id = unit_id  # 🚀 บันทึก unit_id ไว้ให้ Sweeper ใช้งาน
+        obj.unit_id = unit_id  
         db.commit()
-        db.refresh(obj)
-    # สร้างไฟล์ stop_ai.signal เพื่อบอกให้ main_ai.py หยุดทำงาน
+
     try:
         with open(SIGNAL_FILE, "w") as f:
             f.write("stop")
+        print("[Backend] Stop signal sent to AI Engine.")
     except Exception as e:
         print(f"[Backend] Signal Error: {e}")
 
