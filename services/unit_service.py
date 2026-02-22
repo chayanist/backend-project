@@ -4,7 +4,7 @@ from models.unit import Unit
 from models.inspection import Inspection
 from models.ricegrain import RiceGrain
 from sqlalchemy import func, case
-from datetime import datetime
+from datetime import datetime, time
 import shutil
 import os
 from pathlib import Path
@@ -24,9 +24,16 @@ def create_unit(db: Session, unit_name: str):
 def get_unit(db: Session, unit_id: int):
     return db.query(Unit).filter(Unit.unit_id == unit_id).first()
 
-def get_unit_report(db: Session, unit_id: int):
+from sqlalchemy import func, case
+from datetime import datetime
 
-    rows = (
+def get_unit_report(
+    db: Session,
+    unit_id: int,
+    min_date: datetime | None = None,
+    max_date: datetime | None = None,
+):
+    query = (
         db.query(
             Inspection.inspection_id,
             Inspection.date_time,
@@ -45,12 +52,23 @@ def get_unit_report(db: Session, unit_id: int):
             RiceGrain.inspection_id == Inspection.inspection_id
         )
         .filter(Inspection.unit_id == unit_id)
-        .group_by(Inspection.inspection_id, Inspection.date_time)
+    )
+
+    # ✅ filter date
+    if min_date:
+        query = query.filter(Inspection.date_time >= min_date)
+
+    if max_date:
+        query = query.filter(Inspection.date_time <= max_date)
+
+    rows = (
+        query.group_by(Inspection.inspection_id, Inspection.date_time)
         .order_by(Inspection.inspection_id.desc())
         .all()
     )
 
-    return [
+    # ===== list per inspection =====
+    data = [
         {
             "id": r.inspection_id,
             "date": r.date_time.strftime("%d/%m/%Y"),
@@ -65,6 +83,21 @@ def get_unit_report(db: Session, unit_id: int):
         for r in rows
     ]
 
+    # ===== summary รวมทั้งหมด =====
+    summary = {
+        "lv5": sum(d["lv5"] for d in data),
+        "lv4": sum(d["lv4"] for d in data),
+        "lv3": sum(d["lv3"] for d in data),
+        "lv2": sum(d["lv2"] for d in data),
+        "lv1": sum(d["lv1"] for d in data),
+        "lv0": sum(d["lv0"] for d in data),
+        "total": sum(d["total"] for d in data),
+    }
+
+    return {
+        "summary": summary,
+        "items": data
+    }
 
 def get_inspection_summary(db: Session, inspection_id: int):
     """
@@ -299,6 +332,51 @@ def convert_path_to_url(file_path: str):
     base_path = "/home/ricebelly/riceBellyProjectV4/ai_engine/store/"
     return file_path.replace(base_path, "/images/")
 
+def get_unit_summary_all(db: Session, unit_id: int):
+    # ดึง belly_white_ratio ทั้งหมดของ unit
+    rows = (
+        db.query(RiceGrain.belly_white_ratio)
+        .join(Inspection, RiceGrain.inspection_id == Inspection.inspection_id)
+        .filter(Inspection.unit_id == unit_id)
+        .all()
+    )
+
+    ratios = [r[0] for r in rows if r[0] is not None]
+
+    summary = build_summary(ratios)
+    print("UNIT:", unit_id)
+    print("ROWS:", len(rows))
+    return {
+        "summary": summary,
+        "total": len(ratios),
+    }
+
+def build_summary(ratios: list[float]):
+    ranges = {
+        "0": {"label": "0%", "min": 0, "max": 0},
+        "1": {"label": "1-10%", "min": 0.01, "max": 10},
+        "2": {"label": "11-24%", "min": 11, "max": 24},
+        "3": {"label": "25-50%", "min": 25, "max": 50},
+        "4": {"label": "51-75%", "min": 51, "max": 75},
+        "5": {"label": "75%+", "min": 75.01, "max": 100},
+    }
+
+    summary = {}
+
+    total = len(ratios)
+
+    for key, r in ranges.items():
+        count = sum(1 for v in ratios if r["min"] <= v <= r["max"])
+
+        percentage = round((count / total) * 100, 2) if total else 0
+
+        summary[key] = {
+            "label": r["label"],
+            "count": count,
+            "percentage": percentage,
+        }
+
+    return summary
 def list_ricegrains_by_inspection(db: Session, inspection_id: int, level: int = None):
     """Return rice grains for an inspection with id, belly_white_ratio and image path.
 

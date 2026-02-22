@@ -1,11 +1,13 @@
 # routers/unit.py
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from core.deps import get_db, get_current_user
 from core.response import success
 from core.messages import MessageEnum
 from services.unit_service import (
-    create_unit, get_inspection_summary, get_unit, get_unit_report, update_unit, delete_unit,search_units,dropdown_units
+    create_unit, get_inspection_summary, get_unit, get_unit_report, get_unit_summary_all, update_unit, delete_unit,search_units,dropdown_units
 )
 from schemas.unit import UnitCreate, UnitUpdate
 
@@ -24,14 +26,25 @@ def detail(unit_id: int, db: Session = Depends(get_db)):
     return success(unit, MessageEnum.SUCCESS)
 
 @router.get("/{unit_id}/inspections")
-def get_unit_inspections(unit_id: int, db: Session = Depends(get_db)):
-    data = get_unit_report(db, unit_id)
+def unit_report(
+    unit_id: int,
+    min_date: datetime | None = None,
+    max_date: datetime | None = None,
+    db: Session = Depends(get_db)
+):
+    data =  get_unit_report(db, unit_id, min_date, max_date)
     return success(data, MessageEnum.SUCCESS)
+
 
 @router.get("/inspection-summary/{inspection_id}")
 def inspection_summary(inspection_id: int, db: Session = Depends(get_db)):
     data =  get_inspection_summary(db, inspection_id)
     return success(data, MessageEnum.SUCCESS)
+
+@router.get("/{unit_id}/inspection-summary-all")
+def get_unit_summary_alls(unit_id: int, db: Session = Depends(get_db)):
+    summary = get_unit_summary_all(db, unit_id)
+    return success(summary, MessageEnum.SUCCESS)
 
 
 @router.get("/inspection-summary/ricegrains/{inspection_id}")
