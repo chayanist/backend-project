@@ -1,13 +1,13 @@
 # routers/unit.py
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from core.deps import get_db, get_current_user
 from core.response import success
 from core.messages import MessageEnum
 from services.unit_service import (
-    create_unit, get_inspection_summary, get_unit, get_unit_report, get_unit_summary_all, update_unit, delete_unit,search_units,dropdown_units
+    create_next_inspection, create_unit, get_dropdown_inspections, get_inspection_summary, get_unit, get_unit_report, get_unit_summary_all, update_unit, delete_unit,search_units,dropdown_units
 )
 from schemas.unit import UnitCreate, UnitUpdate
 
@@ -90,3 +90,20 @@ def search(
 def dropdown(db: Session = Depends(get_db)):
     items = dropdown_units(db)
     return success(items, MessageEnum.SUCCESS)
+
+@router.post("/create-next")
+def create_inspection(
+    unit_id: int = Body(..., embed=True),
+    db: Session = Depends(get_db)
+):
+    data = create_next_inspection(db, unit_id)
+    return success(data, MessageEnum.SUCCESS)
+
+
+@router.get("/dropdown/inspection")
+def dropdown_inspection(
+    unit_id: int = Query(..., description="Unit ID"),
+    db: Session = Depends(get_db)
+):
+    data =  get_dropdown_inspections(db, unit_id)
+    return success(data, MessageEnum.SUCCESS)

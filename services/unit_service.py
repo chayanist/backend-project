@@ -1,5 +1,6 @@
 # services/unit_service.py
 from sqlalchemy.orm import Session
+from models.classified import Classified
 from models.unit import Unit
 from models.inspection import Inspection
 from models.ricegrain import RiceGrain
@@ -38,20 +39,17 @@ def get_unit_report(
             Inspection.inspection_id,
             Inspection.date_time,
 
-            func.count(RiceGrain.rice_grain_id).label("total"),
-
-            func.sum(case((RiceGrain.belly_white_level == 5, 1), else_=0)).label("lv5"),
-            func.sum(case((RiceGrain.belly_white_level == 4, 1), else_=0)).label("lv4"),
-            func.sum(case((RiceGrain.belly_white_level == 3, 1), else_=0)).label("lv3"),
-            func.sum(case((RiceGrain.belly_white_level == 2, 1), else_=0)).label("lv2"),
-            func.sum(case((RiceGrain.belly_white_level == 1, 1), else_=0)).label("lv1"),
-            func.sum(case((RiceGrain.belly_white_level == 0, 1), else_=0)).label("lv0"),
+            func.sum(Classified.level5).label("lv5"),
+            func.sum(Classified.level4).label("lv4"),
+            func.sum(Classified.level3).label("lv3"),
+            func.sum(Classified.level2).label("lv2"),
+            func.sum(Classified.level1).label("lv1"),
+            func.sum(Classified.level0).label("lv0"),
+            func.sum(Classified.total).label("total"),
         )
-        .outerjoin(
-            RiceGrain,
-            RiceGrain.inspection_id == Inspection.inspection_id
-        )
+        .join(Classified, Classified.inspection_id == Inspection.inspection_id)
         .filter(Inspection.unit_id == unit_id)
+        .group_by(Inspection.inspection_id, Inspection.date_time)
     )
 
     # ✅ filter date
@@ -229,7 +227,8 @@ def get_inspection_summary(db: Session, inspection_id: int):
                 (RiceGrain.belly_white_ratio > 96), 1
             ), else_=0)).label("group_5_5"),
         )
-        .filter(RiceGrain.inspection_id == inspection_id)
+        .join(Classified, RiceGrain.classified_id == Classified.classified_id)
+        .filter(Classified.inspection_id == inspection_id)
         .one()
     )
 
@@ -336,7 +335,8 @@ def get_unit_summary_all(db: Session, unit_id: int):
     # ดึง belly_white_ratio ทั้งหมดของ unit
     rows = (
         db.query(RiceGrain.belly_white_ratio)
-        .join(Inspection, RiceGrain.inspection_id == Inspection.inspection_id)
+        .join(Classified, RiceGrain.classified_id == Classified.classified_id)
+        .join(Inspection, Classified.inspection_id == Inspection.inspection_id)
         .filter(Inspection.unit_id == unit_id)
         .all()
     )
@@ -393,7 +393,8 @@ def list_ricegrains_by_inspection(db: Session, inspection_id: int, level: int = 
             RiceGrain.belly_white_ratio,
             RiceGrain.image,
         )
-        .filter(RiceGrain.inspection_id == inspection_id)
+        .join(Classified, RiceGrain.classified_id == Classified.classified_id)
+        .filter(Classified.inspection_id == inspection_id)
     )
 
     # Apply level filtering based on belly_white_ratio ranges
@@ -447,8 +448,9 @@ def delete_unit(db: Session, unit_id: int):
     try:
         # 2. หาโฟลเดอร์ทั้งหมดที่เกี่ยวข้องกับ Unit นี้
         # โดยเชื่อมจาก Unit -> Inspection -> RiceGrain เพื่อเอา path รูปภาพ
-        inspections = db.query(Inspection).filter(Inspection.unit_id == unit_id).all()
-        
+        inspections = db.query(RiceGrain)\
+                        .join(Classified, RiceGrain.classified_id == Classified.classified_id)\
+                        .filter(Classified.inspection_id == insp.inspection_id)
         folders_to_delete = set()
         for insp in inspections:
             # หาเมล็ดข้าวเมล็ดแรกในแต่ละ inspection เพื่อระบุโฟลเดอร์
@@ -506,7 +508,8 @@ def search_units(
         )
         .outerjoin(insp_max, insp_max.c.unit_id == Unit.unit_id)
         .outerjoin(Inspection, Inspection.unit_id == Unit.unit_id)
-        .outerjoin(RiceGrain, RiceGrain.inspection_id == Inspection.inspection_id)
+        .outerjoin(Classified, Classified.inspection_id == Inspection.inspection_id)
+        .outerjoin(RiceGrain, RiceGrain.classified_id == Classified.classified_id)
         .group_by(Unit.unit_id, Unit.unit_name, insp_max.c.max_dt)
     )
 
@@ -555,7 +558,8 @@ def search_units(
             )
             .join(insp_q, insp_q.c.unit_id == Unit.unit_id)
             .join(Inspection, (Inspection.unit_id == insp_q.c.unit_id) & (Inspection.date_time == insp_q.c.max_dt))
-            .outerjoin(RiceGrain, RiceGrain.inspection_id == Inspection.inspection_id)
+            .outerjoin(Classified, Classified.inspection_id == Inspection.inspection_id)
+            .outerjoin(RiceGrain, RiceGrain.classified_id == Classified.classified_id)
             .group_by(Unit.unit_id, Unit.unit_name, Inspection.date_time)
         )
 
@@ -603,4 +607,57 @@ def dropdown_units(db: Session):
             "label": u.unit_name
         }
         for u in units
+    ]
+
+
+def create_next_inspection(db: Session, unit_id: int):
+    """
+    สร้าง inspection ใหม่ของ unit
+    inspection_id จะ auto +1 จากของเดิม
+    """
+
+
+    new_inspection = Inspection(
+        unit_id=unit_id,
+        date_time=datetime.utcnow()
+    )
+
+    db.add(new_inspection)
+    db.commit()
+    db.refresh(new_inspection)
+
+    return {
+        "inspection_id": new_inspection.inspection_id
+    }
+
+
+def get_dropdown_inspections(db: Session, unit_id: int):
+    """
+    คืน inspection_id ที่ยังตรวจได้ไม่ครบ 3 รอบ
+    """
+
+    rows = (
+        db.query(
+            Inspection.inspection_id,
+            func.count(func.distinct(Classified.classified_id)).label("round_count")
+        )
+        .outerjoin(
+            Classified,
+            Classified.inspection_id == Inspection.inspection_id
+        )
+        .filter(Inspection.unit_id == unit_id)
+        .group_by(Inspection.inspection_id)
+        .having(func.count(func.distinct(Classified.classified_id)) < 3)
+        .order_by(Inspection.inspection_id.asc())
+        .all()
+    )
+
+    return [
+        {
+            "value": r.inspection_id,
+            "label": f"ครั้งที่ {r.inspection_id} (เหลือ {3 - r.round_count} รอบ)",
+            "remaining": 3 - r.round_count,
+            "next_round": r.round_count + 1
+        }
+        for r in rows
     ]

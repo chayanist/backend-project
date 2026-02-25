@@ -7,7 +7,7 @@ import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Body, WebSocket, WebSocketDisconnect
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 from jose import jwt, JWTError
 
@@ -17,6 +17,7 @@ from core.deps import get_db, get_current_user
 from core.config import SECRET_KEY, ALGORITHM
 from core.messages import MessageEnum
 from core.response import success
+from models.classified import Classified
 from models.user import User
 from models.modelstatus import ModelStatus
 
@@ -34,6 +35,22 @@ ws_connections = set()
 broadcast_loop = None
 
 # ================= 🧹 [SWEEPER] Helper Functions =================
+def check_inspection_available(db, inspection_id: int):
+    """
+    คืน (ok, count, message)
+    ok = True ถ้ายัง start ได้
+    """
+
+    count = (
+        db.query(func.count(Classified.classified_id))
+        .filter(Classified.inspection_id == inspection_id)
+        .scalar()
+    )
+
+    if count >= 3:
+        return False, count, "inspection นี้ตรวจครบ 3 รอบแล้ว"
+
+    return True, count, None
 
 def data_sweeper():
     """ทำหน้าที่กวาดไฟล์ JSON ใน results/ เข้า Database"""
@@ -177,18 +194,40 @@ async def stream_websocket(websocket: WebSocket):
 @router.get("/status")
 def get_model_status(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     obj = db.query(ModelStatus).first()
-    return success(obj.status if obj else None, MessageEnum.SUCCESS)
+    return success(obj, MessageEnum.SUCCESS)
 
-@router.put("/start")
-def start(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+@router.post("/start")
+def start(data: dict = Body(...),db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     clear_signal()
+    unit_id = data.get("unit_id")
+    inspection_id = data.get("inspection_id")
+    # BOOLEAN สำหรับโหมดการรัน
+    basic_mode = data.get("basic_mode")
+
+    ok, count, msg = check_inspection_available(db, inspection_id)
+
+    if not ok:
+        return {
+            "data": False,
+            "message": msg,
+            "round_count": count
+        }
 
     obj = db.query(ModelStatus).filter(ModelStatus.id == 1).first()
     if not obj:
-        obj = ModelStatus(id=1, status=True)
+        obj = ModelStatus(
+            id=1,
+            status=True,
+            unit_id=unit_id,
+            inspection_id=inspection_id,
+            basic_mode=basic_mode
+        )
         db.add(obj)
     else:
         obj.status = True
+        obj.unit_id = unit_id
+        obj.inspection_id = inspection_id
+        obj.basic_mode = basic_mode
     db.commit()
 
     def run_ai_task():
@@ -261,8 +300,9 @@ def stop_ai(data: dict = Body(...), db: Session = Depends(get_db), current_user:
     obj = db.query(ModelStatus).filter(ModelStatus.id == 1).first()
     if obj:
         obj.unit_id = unit_id  
-        db.commit()
+        obj.status = False 
 
+    db.commit()
     try:
         with open(SIGNAL_FILE, "w") as f:
             f.write("stop")
