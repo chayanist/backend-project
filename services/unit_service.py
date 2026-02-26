@@ -172,7 +172,7 @@ def get_inspection_report(db: Session, inspection_id: int):
             Accuracy.level5.label("a5"),
             Accuracy.overall,
         )
-        .join(Accuracy, Accuracy.classified_id == Classified.classified_id)
+        .outerjoin(Accuracy, Accuracy.classified_id == Classified.classified_id)
         .filter(Classified.inspection_id == inspection_id)
         .order_by(Classified.round_number.asc())
         .all()
@@ -202,16 +202,19 @@ def get_inspection_report(db: Session, inspection_id: int):
     accuracy = []
 
     for r in rows:
+        if r.overall is None:
+            continue
+
         accuracy.append({
             "classifiedId": r.classified_id,
             "roundNumber": r.round_number,
-            "c0": r.a0,
-            "c1": r.a1,
-            "c2": r.a2,
-            "c3": r.a3,
-            "c4": r.a4,
-            "c5": r.a5,
-            "overall": r.overall,
+            "c0": r.a0 or 0,
+            "c1": r.a1 or 0,
+            "c2": r.a2 or 0,
+            "c3": r.a3 or 0,
+            "c4": r.a4 or 0,
+            "c5": r.a5 or 0,
+            "overall": r.overall or 0,
         })
 
     return {
