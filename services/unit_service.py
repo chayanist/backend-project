@@ -1,5 +1,6 @@
 # services/unit_service.py
 from sqlalchemy.orm import Session
+from models.Accuracy import Accuracy
 from models.classified import Classified
 from models.unit import Unit
 from models.inspection import Inspection
@@ -34,7 +35,11 @@ def get_unit_report(
     min_date: datetime | None = None,
     max_date: datetime | None = None,
 ):
-    query = (
+    # =========================
+    # 1️⃣ Query inspection summary
+    # =========================
+
+    inspection_query = (
         db.query(
             Inspection.inspection_id,
             Inspection.date_time,
@@ -52,49 +57,166 @@ def get_unit_report(
         .group_by(Inspection.inspection_id, Inspection.date_time)
     )
 
-    # ✅ filter date
     if min_date:
-        query = query.filter(Inspection.date_time >= min_date)
+        inspection_query = inspection_query.filter(
+            Inspection.date_time >= min_date
+        )
 
     if max_date:
-        query = query.filter(Inspection.date_time <= max_date)
+        inspection_query = inspection_query.filter(
+            Inspection.date_time <= max_date
+        )
 
-    rows = (
-        query.group_by(Inspection.inspection_id, Inspection.date_time)
+    inspections = (
+        inspection_query
         .order_by(Inspection.inspection_id.desc())
         .all()
     )
 
-    # ===== list per inspection =====
-    data = [
-        {
-            "id": r.inspection_id,
-            "date": r.date_time.strftime("%d/%m/%Y"),
-            "lv5": int(r.lv5 or 0),
-            "lv4": int(r.lv4 or 0),
-            "lv3": int(r.lv3 or 0),
-            "lv2": int(r.lv2 or 0),
-            "lv1": int(r.lv1 or 0),
-            "lv0": int(r.lv0 or 0),
-            "total": int(r.total or 0),
-        }
-        for r in rows
-    ]
+    # =========================
+    # 2️⃣ Build items + subRounds
+    # =========================
 
-    # ===== summary รวมทั้งหมด =====
+    items = []
+
+    for ins in inspections:
+
+        # 🔹 ดึง classified (sub rounds) ของ inspection นี้
+        classified_rows = (
+            db.query(
+                Classified.classified_id,
+                Classified.round_number,
+                Classified.date_time,
+
+                Classified.level5,
+                Classified.level4,
+                Classified.level3,
+                Classified.level2,
+                Classified.level1,
+                Classified.level0,
+                Classified.total,
+            )
+            .filter(Classified.inspection_id == ins.inspection_id)
+            .order_by(Classified.round_number.asc())
+            .all()
+        )
+
+        sub_rounds = [
+            {
+                "id": c.classified_id,  # ⭐ ใช้ id นี้ยิง graph/classified
+                "roundNumber": c.round_number,
+                "date": c.date_time.strftime("%d/%m/%Y")
+                if c.date_time else None,
+                "lv5": int(c.level5 or 0),
+                "lv4": int(c.level4 or 0),
+                "lv3": int(c.level3 or 0),
+                "lv2": int(c.level2 or 0),
+                "lv1": int(c.level1 or 0),
+                "lv0": int(c.level0 or 0),
+                "total": int(c.total or 0),
+            }
+            for c in classified_rows
+        ]
+
+        items.append(
+            {
+                "id": ins.inspection_id,
+                "date": ins.date_time.strftime("%d/%m/%Y"),
+                "lv5": int(ins.lv5 or 0),
+                "lv4": int(ins.lv4 or 0),
+                "lv3": int(ins.lv3 or 0),
+                "lv2": int(ins.lv2 or 0),
+                "lv1": int(ins.lv1 or 0),
+                "lv0": int(ins.lv0 or 0),
+                "total": int(ins.total or 0),
+                "subRounds": sub_rounds,  # ⭐ เพิ่มตรงนี้
+            }
+        )
+
+    # =========================
+    # 3️⃣ Summary รวมทั้งหมด
+    # =========================
+
     summary = {
-        "lv5": sum(d["lv5"] for d in data),
-        "lv4": sum(d["lv4"] for d in data),
-        "lv3": sum(d["lv3"] for d in data),
-        "lv2": sum(d["lv2"] for d in data),
-        "lv1": sum(d["lv1"] for d in data),
-        "lv0": sum(d["lv0"] for d in data),
-        "total": sum(d["total"] for d in data),
+        "lv5": sum(d["lv5"] for d in items),
+        "lv4": sum(d["lv4"] for d in items),
+        "lv3": sum(d["lv3"] for d in items),
+        "lv2": sum(d["lv2"] for d in items),
+        "lv1": sum(d["lv1"] for d in items),
+        "lv0": sum(d["lv0"] for d in items),
+        "total": sum(d["total"] for d in items),
     }
 
     return {
         "summary": summary,
-        "items": data
+        "items": items
+    }
+def get_inspection_report(db: Session, inspection_id: int):
+
+    rows = (
+        db.query(
+            Classified.classified_id,
+            Classified.round_number,
+            Classified.level0,
+            Classified.level1,
+            Classified.level2,
+            Classified.level3,
+            Classified.level4,
+            Classified.level5,
+            Classified.total,
+            Accuracy.level0.label("a0"),
+            Accuracy.level1.label("a1"),
+            Accuracy.level2.label("a2"),
+            Accuracy.level3.label("a3"),
+            Accuracy.level4.label("a4"),
+            Accuracy.level5.label("a5"),
+            Accuracy.overall,
+        )
+        .join(Accuracy, Accuracy.classified_id == Classified.classified_id)
+        .filter(Classified.inspection_id == inspection_id)
+        .order_by(Classified.round_number.asc())
+        .all()
+    )
+
+    if not rows:
+        return None
+
+    # =============================
+    # 🔹 summary รวมเมล็ดทั้งหมด
+    # =============================
+
+    summary = {
+        "lv5": sum(r.level5 or 0 for r in rows),
+        "lv4": sum(r.level4 or 0 for r in rows),
+        "lv3": sum(r.level3 or 0 for r in rows),
+        "lv2": sum(r.level2 or 0 for r in rows),
+        "lv1": sum(r.level1 or 0 for r in rows),
+        "lv0": sum(r.level0 or 0 for r in rows),
+        "total": sum(r.total or 0 for r in rows),
+    }
+
+    # =============================
+    # 🔹 accuracy ต่อรอบ (ใช้จาก table)
+    # =============================
+
+    accuracy = []
+
+    for r in rows:
+        accuracy.append({
+            "classifiedId": r.classified_id,
+            "roundNumber": r.round_number,
+            "c0": r.a0,
+            "c1": r.a1,
+            "c2": r.a2,
+            "c3": r.a3,
+            "c4": r.a4,
+            "c5": r.a5,
+            "overall": r.overall,
+        })
+
+    return {
+        "summary": summary,
+        "accuracy": accuracy
     }
 
 def get_inspection_summary(db: Session, inspection_id: int):

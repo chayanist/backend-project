@@ -20,3 +20,9 @@ class Classified(Base):
 
     inspection = relationship("Inspection", back_populates="classifieds")
     ricegrains = relationship("RiceGrain", back_populates="classified")
+    accuracy = relationship(
+        "Accuracy",
+        back_populates="classified",
+        uselist=False,
+        cascade="all, delete"
+    )

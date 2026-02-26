@@ -8,14 +8,19 @@ from core.config import ACCESS_TOKEN_EXPIRE_MINUTES
 from core.deps import get_db
 from models.user import User
 from models.role import Role
-
+from sqlalchemy import or_
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
 @router.post("/login")
 def login(req: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == req.username).filter(User.status == True).first()
+    user = db.query(User).filter(
+        or_(
+            User.username == req.username,
+            User.email == req.username
+        )
+    ).filter(User.status == True).first()
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 

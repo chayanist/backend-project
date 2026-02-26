@@ -7,7 +7,7 @@ from core.deps import get_db, get_current_user
 from core.response import success
 from core.messages import MessageEnum
 from services.unit_service import (
-    create_next_inspection, create_unit, get_dropdown_inspections, get_inspection_summary, get_unit, get_unit_report, get_unit_summary_all, update_unit, delete_unit,search_units,dropdown_units
+    get_inspection_report,create_next_inspection, create_unit, get_dropdown_inspections, get_inspection_summary, get_unit, get_unit_report, get_unit_summary_all, update_unit, delete_unit,search_units,dropdown_units
 )
 from schemas.unit import UnitCreate, UnitUpdate
 
@@ -35,6 +35,13 @@ def unit_report(
     data =  get_unit_report(db, unit_id, min_date, max_date)
     return success(data, MessageEnum.SUCCESS)
 
+@router.get("/inspection/{inspection_id}/report")
+def get_inspection(
+    inspection_id: int,
+    db: Session = Depends(get_db)
+):
+    data =  get_inspection_report(db, inspection_id)
+    return success(data, MessageEnum.SUCCESS)
 
 @router.get("/inspection-summary/{inspection_id}")
 def inspection_summary(inspection_id: int, db: Session = Depends(get_db)):
