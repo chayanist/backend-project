@@ -13,3 +13,5 @@ venv/
 .venv/
 ENV/
 venv_backend/
+init backeup.sql
+postgres_data/
