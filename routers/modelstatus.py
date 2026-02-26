@@ -5,6 +5,7 @@ import subprocess
 import threading
 import asyncio
 from pathlib import Path
+import time
 
 from fastapi import APIRouter, Depends, Body, WebSocket, WebSocketDisconnect
 from sqlalchemy import func, text
@@ -28,7 +29,7 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 AI_DIR = BASE_DIR / "ai_engine"
 RESULTS_DIR = AI_DIR / "results"
 STORE_ROOT = AI_DIR / "store"
-SIGNAL_FILE = AI_DIR / "stop_ai.signal"
+# SIGNAL_FILE = AI_DIR / "stop_ai.signal" # เปลี่ยนไปใช้การเคลียร์ทั้ง 2 ไฟล์ในฟังก์ชันแทน
 
 # WebSocket broadcast state
 ws_connections = set()
@@ -40,7 +41,6 @@ def check_inspection_available(db, inspection_id: int):
     คืน (ok, count, message)
     ok = True ถ้ายัง start ได้
     """
-
     count = (
         db.query(func.count(Classified.classified_id))
         .filter(Classified.inspection_id == inspection_id)
@@ -51,6 +51,16 @@ def check_inspection_available(db, inspection_id: int):
         return False, count, "inspection นี้ตรวจครบ 3 รอบแล้ว"
 
     return True, count, None
+
+def parse_accuracy_value(val_str):
+    """ฟังก์ชันช่วยตัดตัวหนังสือและ % ออก แล้วแปลงเป็น Float ทศนิยม 2 ตำแหน่ง"""
+    if not val_str or "Not tested" in str(val_str):
+        return 0.00
+    try:
+        # ตัดตรง '%' แล้วเอาตัวเลขด้านหน้ามาแปลงเป็น float
+        return float(str(val_str).split('%')[0])
+    except Exception:
+        return 0.00
 
 def data_sweeper():
     """ทำหน้าที่กวาดไฟล์ JSON ใน results/ เข้า Database"""
@@ -64,43 +74,71 @@ def data_sweeper():
 
         db = SessionLocal()
         try:
-            # 🚀 1. ดึง unit_id ล่าสุดที่เพิ่งบันทึกไว้ตอน Stop
+            # 🚀 1. ดึง status ล่าสุด (ประยุกต์จาก: ดึง unit_id ล่าสุดที่เพิ่งบันทึกไว้ตอน Stop)
             status_obj = db.query(ModelStatus).filter(ModelStatus.id == 1).first()
-            current_unit_id = status_obj.unit_id if (status_obj and status_obj.unit_id) else 1
+            if not status_obj or not status_obj.inspection_id:
+                print("[Sweeper] Error: No active inspection_id found in ModelStatus.")
+                return
+            
+            current_insp_id = status_obj.inspection_id
 
             # 🚀 2. รีเซ็ต Sequence ของ Primary Key ทั้งสองตาราง
             db.execute(text("""
                 -- รีเซ็ตของ ricegrain (ที่มีอยู่แล้ว)
-                SELECT setval(
-                    pg_get_serial_sequence('api.ricegrain', 'rice_grain_id'),
-                    COALESCE(MAX(rice_grain_id), 0) + 1,
-                    false
-                ) FROM api.ricegrain;
-
-                -- เพิ่ม: รีเซ็ตของ inspection (ตัวปัญหา)
-                SELECT setval(
-                    pg_get_serial_sequence('api.inspection', 'inspection_id'),
-                    COALESCE(MAX(inspection_id), 0) + 1,
-                    false
-                ) FROM api.inspection;
+                SELECT setval(pg_get_serial_sequence('api.ricegrain', 'rice_grain_id'), COALESCE(MAX(rice_grain_id), 0) + 1, false) FROM api.ricegrain;
+                
+                -- เพิ่ม: รีเซ็ตของ classified (แทน inspection ตัวปัญหาเดิม)
+                SELECT setval(pg_get_serial_sequence('api.classified', 'classified_id'), COALESCE(MAX(classified_id), 0) + 1, false) FROM api.classified;
             """))
 
             for session_dir in all_sessions:
                 json_path = session_dir / "data.json"
+                summary_path = session_dir / "accuracy_summary.json" 
+                
                 if not json_path.exists():
                     continue
 
                 with open(json_path, 'r', encoding='utf-8') as f:
                     grain_data = json.load(f)
 
-                # 🚀 3. สร้างรายการ Inspection ใหม่
-                result = db.execute(text("""
-                    INSERT INTO api.inspection (date_time, unit_id)
-                    VALUES (NOW(), :unit_id)
-                    RETURNING inspection_id
-                """), {"unit_id": current_unit_id})
+                # คำนวณ Round Number
+                round_count = db.execute(text("""
+                    SELECT COUNT(*) FROM api.classified WHERE inspection_id = :insp_id
+                """), {"insp_id": current_insp_id}).scalar()
                 
-                new_insp_id = result.fetchone()[0]
+                new_round_number = round_count + 1
+
+                if new_round_number > 3:
+                    print(f"[Sweeper] Warning: Inspection {current_insp_id} already has 3 rounds. Skipping.")
+                    continue
+
+                # นับจำนวนเมล็ดข้าวแยกตาม Level
+                levels = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+                for item in grain_data:
+                    lv = item.get("bellyWhiteLevel", 0)
+                    if lv in levels:
+                        levels[lv] += 1
+                
+                total_grains = len(grain_data)
+
+                # 🚀 3. สร้างรายการ Classified ใหม่ (แทน: สร้างรายการ Inspection ใหม่)
+                result = db.execute(text("""
+                    INSERT INTO api.classified (
+                        inspection_id, level0, level1, level2, level3, level4, level5, total, round_number, date_time
+                    )
+                    VALUES (
+                        :insp_id, :l0, :l1, :l2, :l3, :l4, :l5, :total, :round_number, NOW()
+                    )
+                    RETURNING classified_id
+                """), {
+                    "insp_id": current_insp_id,
+                    "l0": levels[0], "l1": levels[1], "l2": levels[2],
+                    "l3": levels[3], "l4": levels[4], "l5": levels[5],
+                    "total": total_grains,
+                    "round_number": new_round_number
+                })
+                
+                new_classified_id = result.fetchone()[0]
 
                 # 🚀 4. บันทึกข้อมูลเมล็ดข้าวแต่ละเมล็ด
                 for item in grain_data:
@@ -108,13 +146,35 @@ def data_sweeper():
                     final_image_path = str(STORE_ROOT / session_dir.name / file_name)
 
                     db.execute(text("""
-                        INSERT INTO api.ricegrain (inspection_id, image, belly_white_level, belly_white_ratio)
-                        VALUES (:insp_id, :img, :lvl, :ratio)
+                        INSERT INTO api.ricegrain (classified_id, image, belly_white_level, belly_white_ratio)
+                        VALUES (:class_id, :img, :lvl, :ratio)
                     """), {
-                        "insp_id": new_insp_id,
+                        "class_id": new_classified_id,
                         "img": final_image_path,
                         "lvl": item.get("bellyWhiteLevel", 0),
                         "ratio": item.get("bellyWhiteRatio", 0.0)
+                    })
+
+                # ตรวจสอบและบันทึกข้อมูลตาราง Accuracy (กรณีเป็น Test Mode)
+                if summary_path.exists():
+                    with open(summary_path, 'r', encoding='utf-8') as f:
+                        summary_file_data = json.load(f).get("summary", {})
+                    
+                    db.execute(text("""
+                        INSERT INTO api.accuracy (
+                            classified_id, level0, level1, level2, level3, level4, level5, overall
+                        ) VALUES (
+                            :cls_id, :acc0, :acc1, :acc2, :acc3, :acc4, :acc5, :overall
+                        )
+                    """), {
+                        "cls_id": new_classified_id,
+                        "acc0": parse_accuracy_value(summary_file_data.get("class_0")),
+                        "acc1": parse_accuracy_value(summary_file_data.get("class_1")),
+                        "acc2": parse_accuracy_value(summary_file_data.get("class_2")),
+                        "acc3": parse_accuracy_value(summary_file_data.get("class_3")),
+                        "acc4": parse_accuracy_value(summary_file_data.get("class_4")),
+                        "acc5": parse_accuracy_value(summary_file_data.get("class_5")),
+                        "overall": parse_accuracy_value(summary_file_data.get("overall_accuracy"))
                     })
 
                 db.commit()
@@ -138,11 +198,13 @@ def data_sweeper():
 def clear_signal():
     """ลบไฟล์ signal เพื่อให้ระบบพร้อมสำหรับการทำงานครั้งถัดไป"""
     try:
-        if SIGNAL_FILE.exists():
-            os.remove(SIGNAL_FILE)
-            print("[System] Signal file cleared.")
+        for signal_file in ["stop_ai.signal", "stop_eval.signal"]:
+            sig_path = AI_DIR / signal_file
+            if sig_path.exists():
+                os.remove(sig_path)
+                print(f"[System] {signal_file} cleared.")
     except Exception as e:
-        print(f"[System] Error clearing signal file: {e}")
+        print(f"[System] Error clearing signal files: {e}")
 
 # ================= 🔌 [WEBSOCKET] =================
 
@@ -199,6 +261,16 @@ def get_model_status(db: Session = Depends(get_db), current_user: User = Depends
 @router.post("/start")
 def start(data: dict = Body(...),db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     clear_signal()
+    
+    # ล้างโฟลเดอร์ results ก่อนเริ่มทำงานเสมอ ป้องกันไฟล์ค้าง
+    try:
+        if RESULTS_DIR.exists():
+            shutil.rmtree(RESULTS_DIR)
+        RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+        print("[System] Cleared 'results' directory successfully.")
+    except Exception as e:
+        print(f"[System] Warning: Failed to clear 'results' directory: {e}")
+
     unit_id = data.get("unit_id")
     inspection_id = data.get("inspection_id")
     # BOOLEAN สำหรับโหมดการรัน
@@ -214,6 +286,14 @@ def start(data: dict = Body(...),db: Session = Depends(get_db), current_user: Us
         }
 
     obj = db.query(ModelStatus).filter(ModelStatus.id == 1).first()
+    
+    if obj and obj.status == True:
+        return {
+            "data": False,
+            "message": "ระบบกำลังทำงานอยู่แล้ว ไม่สามารถรันซ้ำได้",
+            "round_count": count
+        }
+
     if not obj:
         obj = ModelStatus(
             id=1,
@@ -230,12 +310,17 @@ def start(data: dict = Body(...),db: Session = Depends(get_db), current_user: Us
         obj.basic_mode = basic_mode
     db.commit()
 
-    def run_ai_task():
-        global broadcast_loop, ws_connections
+    def run_ai_task(is_basic_mode):
+        global broadcast_loop, ws_connections 
+        time.sleep(1) 
+        
         try:
             python_exe = str(AI_DIR / "venv_ai" / "bin" / "python")
+            
+            script_to_run = "main_test_ai.py" if is_basic_mode else "main_ai.py"
+            
             proc = subprocess.Popen(
-                [python_exe, "main_ai.py"],
+                [python_exe, script_to_run],
                 cwd=str(AI_DIR),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -246,6 +331,7 @@ def start(data: dict = Body(...),db: Session = Depends(get_db), current_user: Us
             for raw_line in proc.stdout:
                 line = raw_line.rstrip()
                 print(line)
+                
                 if broadcast_loop and ws_connections:
                     for ws in list(ws_connections):
                         try:
@@ -265,10 +351,13 @@ def start(data: dict = Body(...),db: Session = Depends(get_db), current_user: Us
             # 1. แจ้ง Terminal หน้าเว็บ
             if broadcast_loop and ws_connections:
                 for ws in list(ws_connections):
-                    asyncio.run_coroutine_threadsafe(
-                        ws.send_text("\n[SYSTEM] AI Stopped. Saving data to database..."), 
-                        broadcast_loop
-                    )
+                    try:
+                        asyncio.run_coroutine_threadsafe(
+                            ws.send_text("\n[SYSTEM] AI Stopped. Saving data to database..."), 
+                            broadcast_loop
+                        )
+                    except:
+                        pass
 
             # 2. จัดการข้อมูล (Sweeper)
             data_sweeper() 
@@ -289,24 +378,33 @@ def start(data: dict = Body(...),db: Session = Depends(get_db), current_user: Us
                     except:
                         pass
 
-    threading.Thread(target=run_ai_task, daemon=True).start()
+    threading.Thread(
+        target=run_ai_task, 
+        args=(basic_mode,), 
+        daemon=True
+    ).start()
+    
     return success(True, MessageEnum.SUCCESS)
 
 @router.put("/stop")
 def stop_ai(data: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """สั่งหยุด AI โดยส่งสัญญาณผ่านไฟล์"""
-    unit_id = data.get("unit_id")
+    
+    raw_unit_id = data.get("unit_id")
+    unit_id = raw_unit_id.get("unit_id") if isinstance(raw_unit_id, dict) else raw_unit_id
     
     obj = db.query(ModelStatus).filter(ModelStatus.id == 1).first()
     if obj:
         obj.unit_id = unit_id  
-        obj.status = False 
 
     db.commit()
     try:
-        with open(SIGNAL_FILE, "w") as f:
+        with open(AI_DIR / "stop_ai.signal", "w") as f:
             f.write("stop")
-        print("[Backend] Stop signal sent to AI Engine.")
+        with open(AI_DIR / "stop_eval.signal", "w") as f:
+            f.write("stop")
+            
+        print("[Backend] Stop signals sent to AI Engine.")
     except Exception as e:
         print(f"[Backend] Signal Error: {e}")
 

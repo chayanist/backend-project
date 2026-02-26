@@ -2,7 +2,7 @@ DROP SCHEMA IF EXISTS api CASCADE;
 CREATE SCHEMA api;
 
 -- ======================
--- CREATE ROLE FOR API (ต้องมาก่อน GRANT)
+-- CREATE ROLE FOR API
 -- ======================
 DO $$
 BEGIN
@@ -14,12 +14,12 @@ BEGIN
 END$$;
 
 -- ======================
--- UNIT
+-- UNIT (เปลี่ยนชื่อกลับเป็น units ตามของเก่า)
 -- ======================
 CREATE TABLE api.units (
-    create_date TIMESTAMP DEFAULT now(),
     unit_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     unit_name VARCHAR NOT NULL
+    create_date TIMESTAMP DEFAULT now(),
 );
 
 -- ======================
@@ -27,8 +27,7 @@ CREATE TABLE api.units (
 -- ======================
 CREATE TABLE api.inspection (
     inspection_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    unit_id INTEGER NOT NULL
-        REFERENCES api.units(unit_id) ON DELETE CASCADE,
+    unit_id INTEGER REFERENCES api.units(unit_id) ON DELETE CASCADE,
     date_time TIMESTAMP DEFAULT now()
 );
 
@@ -37,16 +36,16 @@ CREATE TABLE api.inspection (
 -- ======================
 CREATE TABLE api.classified (
     classified_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    inspection_id INTEGER UNIQUE NOT NULL
-        REFERENCES api.inspection(inspection_id) ON DELETE CASCADE,
-
+    inspection_id INTEGER REFERENCES api.inspection(inspection_id) ON DELETE CASCADE,
     level0 INTEGER DEFAULT 0,
     level1 INTEGER DEFAULT 0,
     level2 INTEGER DEFAULT 0,
     level3 INTEGER DEFAULT 0,
     level4 INTEGER DEFAULT 0,
     level5 INTEGER DEFAULT 0,
-    total INTEGER DEFAULT 0
+    total INTEGER DEFAULT 0,
+    round_number INTEGER,
+    date_time TIMESTAMP DEFAULT now()
 );
 
 -- ======================
@@ -54,12 +53,25 @@ CREATE TABLE api.classified (
 -- ======================
 CREATE TABLE api.ricegrain (
     rice_grain_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    inspection_id INTEGER NOT NULL
-        REFERENCES api.inspection(inspection_id) ON DELETE CASCADE,
-
+    classified_id INTEGER REFERENCES api.classified(classified_id) ON DELETE CASCADE,
     image VARCHAR,
     belly_white_level INTEGER,
     belly_white_ratio DOUBLE PRECISION
+);
+
+-- ======================
+-- ACCURACY (ตารางเก็บความแม่นยำ)
+-- ======================
+CREATE TABLE api.accuracy (
+    accuracy_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    classified_id INTEGER REFERENCES api.classified(classified_id) ON DELETE CASCADE,
+    level0 DECIMAL(5,2) DEFAULT 0.00,
+    level1 DECIMAL(5,2) DEFAULT 0.00,
+    level2 DECIMAL(5,2) DEFAULT 0.00,
+    level3 DECIMAL(5,2) DEFAULT 0.00,
+    level4 DECIMAL(5,2) DEFAULT 0.00,
+    level5 DECIMAL(5,2) DEFAULT 0.00,
+    overall DECIMAL(5,2) DEFAULT 0.00
 );
 
 -- ======================
@@ -89,7 +101,7 @@ CREATE TABLE api.users (
 -- ======================
 CREATE TABLE api.modelstatus (
     id INTEGER PRIMARY KEY,
-    status BOOLEAN NOT NULL
+    status BOOLEAN NOT NULL,
     unit_id INTEGER
 );
 
@@ -98,7 +110,7 @@ VALUES (1, false)
 ON CONFLICT (id) DO NOTHING;
 
 -- ======================
--- PERMISSIONS (หลัง CREATE ROLE)
+-- PERMISSIONS 
 -- ======================
 GRANT USAGE ON SCHEMA api TO api_user;
 
@@ -117,8 +129,21 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA api
 GRANT USAGE, SELECT ON SEQUENCES TO api_user;
 
 -- ======================
--- SEED ROLES
+-- INSERT DATA (ข้อมูลเริ่มต้น)
 -- ======================
-INSERT INTO api.roles (role_name)
+-- 1. ข้อมูล Roles
+INSERT INTO api.roles (role_name) 
 VALUES ('admin'), ('user');
-INSERT INTO api.units (unit_name) VALUES ('Default Machine');
+
+-- 2. ข้อมูล Users
+INSERT INTO api.users (username, password, full_name, email, role_id)
+VALUES ('admin', '1234', 'System Administrator', 'admin@example.com', 1);
+
+-- 3. ข้อมูล Model Status
+INSERT INTO api.modelstatus (id, status)
+VALUES (1, false)
+ON CONFLICT (id) DO NOTHING;
+
+-- 4. ข้อมูล Unit
+INSERT INTO api.units (unit_name) 
+VALUES ('Default Machine');
