@@ -353,7 +353,7 @@ def get_inspection_summary(db: Session, inspection_id: int):
             ), else_=0)).label("group_5_5"),
         )
         .join(Classified, RiceGrain.classified_id == Classified.classified_id)
-        .filter(Classified.inspection_id == inspection_id)
+        .filter(RiceGrain.classified_id  == inspection_id)
         .one()
     )
 
@@ -565,28 +565,29 @@ def update_unit(db: Session, unit_id: int, unit_name: str):
 
 
 def delete_unit(db: Session, unit_id: int):
-    # 1. ค้นหา Unit
     unit = get_unit(db, unit_id)
     if not unit:
         return
 
     try:
-        # 2. หาโฟลเดอร์ทั้งหมดที่เกี่ยวข้องกับ Unit นี้
-        # โดยเชื่อมจาก Unit -> Inspection -> RiceGrain เพื่อเอา path รูปภาพ
-        inspections = db.query(RiceGrain)\
-                        .join(Classified, RiceGrain.classified_id == Classified.classified_id)\
-                        .filter(Classified.inspection_id == insp.inspection_id)
+        # 1️⃣ ดึง image path ทั้งหมดของ unit นี้
+        ricegrain_images = (
+            db.query(RiceGrain.image)
+            .join(Classified, RiceGrain.classified_id == Classified.classified_id)
+            .join(Inspection, Classified.inspection_id == Inspection.inspection_id)
+            .filter(Inspection.unit_id == unit_id)
+            .all()
+        )
+
         folders_to_delete = set()
-        for insp in inspections:
-            # หาเมล็ดข้าวเมล็ดแรกในแต่ละ inspection เพื่อระบุโฟลเดอร์
-            first_grain = db.query(RiceGrain).filter(RiceGrain.inspection_id == insp.inspection_id).first()
-            if first_grain and first_grain.image:
-                # แปลง path จาก string เป็น Path object และหา parent folder (session folder)
-                folder_path = Path(first_grain.image).parent
+
+        for row in ricegrain_images:
+            if row.image:
+                folder_path = Path(row.image).parent
                 if folder_path.exists():
                     folders_to_delete.add(folder_path)
 
-        # 3. ลบโฟลเดอร์ออกจาก Disk
+        # 2️⃣ ลบโฟลเดอร์
         for folder in folders_to_delete:
             try:
                 shutil.rmtree(folder)
@@ -594,12 +595,10 @@ def delete_unit(db: Session, unit_id: int):
             except Exception as e:
                 print(f"[Error] Could not delete folder {folder}: {e}")
 
-        # 4. ลบข้อมูลออกจาก Database
-        # หมายเหตุ: SQL ของคุณตั้ง ON DELETE CASCADE ไว้แล้ว 
-        # การลบ unit จะลบ inspection และ ricegrain อัตโนมัติ
+        # 3️⃣ ลบ unit (มี ON DELETE CASCADE แล้ว)
         db.delete(unit)
         db.commit()
-        
+
     except Exception as e:
         db.rollback()
         print(f"[Error] Process failed: {e}")

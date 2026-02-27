@@ -36,20 +36,35 @@ def update_user(db: Session, user_id: int, data):
     user = get_user(db, user_id)
     if not user:
         return None
-    if data.username or data.email:
-        existing = db.query(User).filter(
-            User.user_id != user_id,
-            or_(
-                User.username == data.username,
-                User.email == data.email
-            )
+    # ---------------------------
+    # 🔎 ตรวจสอบ username ซ้ำ
+    # ---------------------------
+    if data.username is not None and data.username != user.username:
+        existing_username = db.query(User).filter(
+            User.username == data.username,
+            User.user_id != user_id
         ).first()
 
-        if existing:
-            if data.username and existing.username == data.username:
-                raise HTTPException(status_code=400, detail="Username already exists")
-            if data.email and existing.email == data.email:
-                raise HTTPException(status_code=400, detail="Email already exists")
+        if existing_username:
+            raise HTTPException(
+                status_code=400,
+                detail="Username already exists"
+            )
+
+    # ---------------------------
+    # 🔎 ตรวจสอบ email ซ้ำ
+    # ---------------------------
+    if data.email is not None and data.email != user.email:
+        existing_email = db.query(User).filter(
+            User.email == data.email,
+            User.user_id != user_id
+        ).first()
+
+        if existing_email:
+            raise HTTPException(
+                status_code=400,
+                detail="Email already exists"
+            )
 
     if data.full_name is not None:
         user.full_name = data.full_name
