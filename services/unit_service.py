@@ -10,13 +10,17 @@ from datetime import datetime, time
 import shutil
 import os
 from pathlib import Path
+from datetime import datetime
 
 # กำหนด Path หลักของโปรเจกต์ (ปรับให้ตรงกับเครื่องของคุณ)
 BASE_DIR = Path(__file__).resolve().parents[1] 
 STORE_DIR = BASE_DIR / "ai_engine" / "store"
 
 def create_unit(db: Session, unit_name: str):
-    unit = Unit(unit_name=unit_name)
+    unit = Unit(
+        unit_name=unit_name, 
+        create_date=datetime.now()  
+    )
     db.add(unit)
     db.commit()
     db.refresh(unit)
@@ -35,6 +39,9 @@ def get_unit_report(
     min_date: datetime | None = None,
     max_date: datetime | None = None,
 ):
+    # 🚀 1. ดึงชื่อหน่วยงานจากตาราง Unit เพิ่มเข้ามา
+    unit_obj = db.query(Unit).filter(Unit.unit_id == unit_id).first()
+    unit_name = unit_obj.unit_name if unit_obj else f"ไม่ทราบชื่อ ({unit_id})"    
     # =========================
     # 1️⃣ Query inspection summary
     # =========================
@@ -153,6 +160,16 @@ def get_unit_report(
     }
 def get_inspection_report(db: Session, inspection_id: int):
 
+    # 🚀 1. ดึงชื่อหน่วยงานโดยหาจาก inspection_id
+    unit_info = (
+        db.query(Unit.unit_name)
+        .join(Inspection, Inspection.unit_id == Unit.unit_id)
+        .filter(Inspection.inspection_id == inspection_id)
+        .first()
+    )
+    unit_name = unit_info.unit_name if unit_info else "-"
+
+    # 🚀 2. ดึงข้อมูลรายงานตามปกติ
     rows = (
         db.query(
             Classified.classified_id,
@@ -184,7 +201,6 @@ def get_inspection_report(db: Session, inspection_id: int):
     # =============================
     # 🔹 summary รวมเมล็ดทั้งหมด
     # =============================
-
     summary = {
         "lv5": sum(r.level5 or 0 for r in rows),
         "lv4": sum(r.level4 or 0 for r in rows),
@@ -198,9 +214,7 @@ def get_inspection_report(db: Session, inspection_id: int):
     # =============================
     # 🔹 accuracy ต่อรอบ (ใช้จาก table)
     # =============================
-
     accuracy = []
-
     for r in rows:
         if r.overall is None:
             continue
@@ -217,7 +231,9 @@ def get_inspection_report(db: Session, inspection_id: int):
             "overall": r.overall or 0,
         })
 
+    # 🚀 3. แนบชื่อหน่วยงานส่งกลับไปให้ Frontend ตรงนี้
     return {
+        "unit_name": unit_name,
         "summary": summary,
         "accuracy": accuracy
     }
@@ -235,7 +251,16 @@ def get_inspection_summary(db: Session, inspection_id: int):
     Each category (except 0) is further divided into 5 sub-ranges for detailed visualization.
     Note: belly_white_ratio is stored as percentage (0-100), not decimal (0-1)
     """
+    # 🚀 1. ดึงข้อมูล ครั้งที่ (inspection_id) และ รอบที่ (round_number) 
+    classified_info = (
+        db.query(Classified.inspection_id, Classified.round_number)
+        .filter(Classified.classified_id == inspection_id)
+        .first()
+    )
     
+    real_insp_id = classified_info.inspection_id if classified_info else "-"
+    round_no = classified_info.round_number if classified_info else "-"
+
     row = (
         db.query(
             func.count(RiceGrain.rice_grain_id).label("total"),
@@ -354,7 +379,7 @@ def get_inspection_summary(db: Session, inspection_id: int):
         )
         .join(Classified, RiceGrain.classified_id == Classified.classified_id)
         .filter(RiceGrain.classified_id  == inspection_id)
-        .one()
+        .first()
     )
 
     # Calculate group totals
@@ -406,6 +431,8 @@ def get_inspection_summary(db: Session, inspection_id: int):
     group_5_total = sum(group_5_bars)
 
     return {
+        "inspection_id": real_insp_id,  
+        "round_number": round_no,      
         "summary": {
             "0": {
                 "label": "0%",
@@ -448,7 +475,7 @@ def get_inspection_summary(db: Session, inspection_id: int):
                 "labels": ["75-82%", "82-87%", "87-91%", "91-96%", "96-100%"]
             }
         },
-        "total": int(row.total or 0),
+        "total": int(row.total or 0) if row else 0,
     }
 
 
@@ -502,34 +529,29 @@ def build_summary(ratios: list[float]):
         }
 
     return summary
-def list_ricegrains_by_inspection(db: Session, inspection_id: int, level: int = None):
-    """Return rice grains for an inspection with id, belly_white_ratio and image path.
+def list_ricegrains_by_inspection(db: Session, classified_id: int, level: int = None):
+    """Return rice grains along with inspection_id and round_number."""
+    
+    # 🚀 1. ดึงข้อมูล inspection_id และ round_number จากตาราง Classified
+    classified_info = (
+        db.query(Classified.inspection_id, Classified.round_number)
+        .filter(Classified.classified_id == classified_id)
+        .first()
+    )
+    
+    insp_id = classified_info.inspection_id if classified_info else "-"
+    round_no = classified_info.round_number if classified_info else "-"
 
-    Args:
-        db: SQLAlchemy Session
-        inspection_id: inspection id to filter rice grains
-
-    Returns:
-        List of dicts with keys: rice_grain_id, belly_white_ratio, image
-    """
+    # 🚀 2. ดึงข้อมูลเมล็ดข้าวตามปกติ
     query = (
         db.query(
             RiceGrain.rice_grain_id,
             RiceGrain.belly_white_ratio,
             RiceGrain.image,
         )
-        .join(Classified, RiceGrain.classified_id == Classified.classified_id)
-        .filter(Classified.inspection_id == inspection_id)
+        .filter(RiceGrain.classified_id == classified_id) 
     )
 
-    # Apply level filtering based on belly_white_ratio ranges
-    # Levels mapping:
-    # 0: ratio == 0
-    # 1: 0 < ratio <= 10
-    # 2: 10 < ratio <= 24
-    # 3: 24 < ratio <= 50
-    # 4: 50 < ratio <= 75
-    # 5: ratio > 75
     if level is not None:
         if level == 0:
             query = query.filter(RiceGrain.belly_white_ratio == 0)
@@ -546,15 +568,21 @@ def list_ricegrains_by_inspection(db: Session, inspection_id: int, level: int = 
 
     rows = query.order_by(RiceGrain.rice_grain_id.asc()).all()
 
-    return [
+    grains = [
         {
             "rice_grain_id": r.rice_grain_id,
             "belly_white_ratio": float(r.belly_white_ratio) if r.belly_white_ratio is not None else None,
-            "image": f"http://localhost:8000{convert_path_to_url(r.image)}",
+            "image": f"http://localhost:8000{convert_path_to_url(r.image)}" if r.image else None,
         }
         for r in rows
     ]
 
+    # 🚀 3. จัด Format ส่งกลับไปให้ Frontend แบบมี Header บอกข้อมูลรอบ
+    return {
+        "inspection_id": insp_id,
+        "round_number": round_no,
+        "grains": grains
+    }
 
 def update_unit(db: Session, unit_id: int, unit_name: str):
     unit = get_unit(db, unit_id)
