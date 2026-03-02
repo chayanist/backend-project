@@ -10,11 +10,23 @@ from datetime import datetime, time
 import shutil
 import os
 from pathlib import Path
-from datetime import datetime
 
 # กำหนด Path หลักของโปรเจกต์ (ปรับให้ตรงกับเครื่องของคุณ)
 BASE_DIR = Path(__file__).resolve().parents[1] 
 STORE_DIR = BASE_DIR / "ai_engine" / "store"
+
+def get_local_inspection_mapping(db: Session, unit_id: int) -> dict:
+    """
+    คืนค่า Dict ที่แปลงจาก inspection_id ฐานข้อมูล ให้เป็นลำดับที่ 1, 2, 3... ของหน่วยงานนั้น
+    เช่น {4: 1, 5: 2, 6: 3}
+    """
+    rows = (
+        db.query(Inspection.inspection_id)
+        .filter(Inspection.unit_id == unit_id)
+        .order_by(Inspection.inspection_id.asc())
+        .all()
+    )
+    return {row[0]: idx + 1 for idx, row in enumerate(rows)}
 
 def create_unit(db: Session, unit_name: str):
     unit = Unit(
@@ -30,8 +42,6 @@ def create_unit(db: Session, unit_name: str):
 def get_unit(db: Session, unit_id: int):
     return db.query(Unit).filter(Unit.unit_id == unit_id).first()
 
-from sqlalchemy import func, case
-from datetime import datetime
 
 def get_unit_report(
     db: Session,
@@ -42,6 +52,10 @@ def get_unit_report(
     # 🚀 1. ดึงชื่อหน่วยงานจากตาราง Unit เพิ่มเข้ามา
     unit_obj = db.query(Unit).filter(Unit.unit_id == unit_id).first()
     unit_name = unit_obj.unit_name if unit_obj else f"ไม่ทราบชื่อ ({unit_id})"    
+    
+    # 🚀 2. เรียกใช้ตัวแปลงลำดับ ID ให้เป็น 1, 2, 3...
+    local_insp_map = get_local_inspection_mapping(db, unit_id)
+
     # =========================
     # 1️⃣ Query inspection summary
     # =========================
@@ -87,6 +101,8 @@ def get_unit_report(
     items = []
 
     for ins in inspections:
+        # 🚀 3. แปลงเลข ID อัตโนมัติเป็นลำดับของหน่วยงานนี้
+        local_no = local_insp_map.get(ins.inspection_id, ins.inspection_id)
 
         # 🔹 ดึง classified (sub rounds) ของ inspection นี้
         classified_rows = (
@@ -128,7 +144,9 @@ def get_unit_report(
         items.append(
             {
                 "id": ins.inspection_id,
-                "date": ins.date_time.strftime("%d/%m/%Y"),
+                "local_insp_no": local_no,             # 🚀 ส่งลำดับจริง 1,2,3 ไปให้ Frontend
+                "display_name": f"ครั้งที่ {local_no}", # 🚀 ส่งคำว่า "ครั้งที่ 1" ไปให้
+                "date": ins.date_time.strftime("%d/%m/%Y") if ins.date_time else "-",
                 "lv5": int(ins.lv5 or 0),
                 "lv4": int(ins.lv4 or 0),
                 "lv3": int(ins.lv3 or 0),
@@ -155,9 +173,11 @@ def get_unit_report(
     }
 
     return {
+        "unit_name": unit_name,
         "summary": summary,
         "items": items
     }
+
 def get_inspection_report(db: Session, inspection_id: int):
 
     # 🚀 1. ดึงชื่อหน่วยงานโดยหาจาก inspection_id
@@ -239,18 +259,6 @@ def get_inspection_report(db: Session, inspection_id: int):
     }
 
 def get_inspection_summary(db: Session, inspection_id: int):
-    """
-    Summarize inspection data grouped by belly_white_ratio into 6 categories:
-    - 0: ratio = 0
-    - 1-10%: 0 < ratio <= 10
-    - 11-24%: 10 < ratio <= 24
-    - 25-50%: 24 < ratio <= 50
-    - 51-75%: 50 < ratio <= 75
-    - 75%+: ratio > 75
-    
-    Each category (except 0) is further divided into 5 sub-ranges for detailed visualization.
-    Note: belly_white_ratio is stored as percentage (0-100), not decimal (0-1)
-    """
     # 🚀 1. ดึงข้อมูล ครั้งที่ (inspection_id) และ รอบที่ (round_number) 
     classified_info = (
         db.query(Classified.inspection_id, Classified.round_number)
@@ -269,113 +277,39 @@ def get_inspection_summary(db: Session, inspection_id: int):
             func.sum(case((RiceGrain.belly_white_ratio == 0, 1), else_=0)).label("group_0"),
             
             # Group 1-10% divided into 5 sub-bars
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 0) & 
-                (RiceGrain.belly_white_ratio <= 2), 1
-            ), else_=0)).label("group_1_1"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 2) & 
-                (RiceGrain.belly_white_ratio <= 4), 1
-            ), else_=0)).label("group_1_2"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 4) & 
-                (RiceGrain.belly_white_ratio <= 6), 1
-            ), else_=0)).label("group_1_3"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 6) & 
-                (RiceGrain.belly_white_ratio <= 8), 1
-            ), else_=0)).label("group_1_4"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 8) & 
-                (RiceGrain.belly_white_ratio <= 10), 1
-            ), else_=0)).label("group_1_5"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 0) & (RiceGrain.belly_white_ratio <= 2), 1), else_=0)).label("group_1_1"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 2) & (RiceGrain.belly_white_ratio <= 4), 1), else_=0)).label("group_1_2"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 4) & (RiceGrain.belly_white_ratio <= 6), 1), else_=0)).label("group_1_3"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 6) & (RiceGrain.belly_white_ratio <= 8), 1), else_=0)).label("group_1_4"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 8) & (RiceGrain.belly_white_ratio <= 10), 1), else_=0)).label("group_1_5"),
             
             # Group 11-24% divided into 5 sub-bars
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 10) & 
-                (RiceGrain.belly_white_ratio <= 13.3), 1
-            ), else_=0)).label("group_2_1"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 13.3) & 
-                (RiceGrain.belly_white_ratio <= 16.6), 1
-            ), else_=0)).label("group_2_2"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 16.6) & 
-                (RiceGrain.belly_white_ratio <= 19.9), 1
-            ), else_=0)).label("group_2_3"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 19.9) & 
-                (RiceGrain.belly_white_ratio <= 21.7), 1
-            ), else_=0)).label("group_2_4"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 21.7) & 
-                (RiceGrain.belly_white_ratio <= 24), 1
-            ), else_=0)).label("group_2_5"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 10) & (RiceGrain.belly_white_ratio <= 13.3), 1), else_=0)).label("group_2_1"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 13.3) & (RiceGrain.belly_white_ratio <= 16.6), 1), else_=0)).label("group_2_2"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 16.6) & (RiceGrain.belly_white_ratio <= 19.9), 1), else_=0)).label("group_2_3"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 19.9) & (RiceGrain.belly_white_ratio <= 21.7), 1), else_=0)).label("group_2_4"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 21.7) & (RiceGrain.belly_white_ratio <= 24), 1), else_=0)).label("group_2_5"),
             
             # Group 25-50% divided into 5 sub-bars
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 24) & 
-                (RiceGrain.belly_white_ratio <= 30), 1
-            ), else_=0)).label("group_3_1"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 30) & 
-                (RiceGrain.belly_white_ratio <= 35), 1
-            ), else_=0)).label("group_3_2"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 35) & 
-                (RiceGrain.belly_white_ratio <= 40), 1
-            ), else_=0)).label("group_3_3"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 40) & 
-                (RiceGrain.belly_white_ratio <= 45), 1
-            ), else_=0)).label("group_3_4"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 45) & 
-                (RiceGrain.belly_white_ratio <= 50), 1
-            ), else_=0)).label("group_3_5"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 24) & (RiceGrain.belly_white_ratio <= 30), 1), else_=0)).label("group_3_1"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 30) & (RiceGrain.belly_white_ratio <= 35), 1), else_=0)).label("group_3_2"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 35) & (RiceGrain.belly_white_ratio <= 40), 1), else_=0)).label("group_3_3"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 40) & (RiceGrain.belly_white_ratio <= 45), 1), else_=0)).label("group_3_4"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 45) & (RiceGrain.belly_white_ratio <= 50), 1), else_=0)).label("group_3_5"),
             
             # Group 51-75% divided into 5 sub-bars
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 50) & 
-                (RiceGrain.belly_white_ratio <= 59), 1
-            ), else_=0)).label("group_4_1"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 59) & 
-                (RiceGrain.belly_white_ratio <= 63), 1
-            ), else_=0)).label("group_4_2"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 63) & 
-                (RiceGrain.belly_white_ratio <= 67), 1
-            ), else_=0)).label("group_4_3"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 67) & 
-                (RiceGrain.belly_white_ratio <= 71), 1
-            ), else_=0)).label("group_4_4"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 71) & 
-                (RiceGrain.belly_white_ratio <= 75), 1
-            ), else_=0)).label("group_4_5"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 50) & (RiceGrain.belly_white_ratio <= 59), 1), else_=0)).label("group_4_1"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 59) & (RiceGrain.belly_white_ratio <= 63), 1), else_=0)).label("group_4_2"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 63) & (RiceGrain.belly_white_ratio <= 67), 1), else_=0)).label("group_4_3"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 67) & (RiceGrain.belly_white_ratio <= 71), 1), else_=0)).label("group_4_4"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 71) & (RiceGrain.belly_white_ratio <= 75), 1), else_=0)).label("group_4_5"),
             
             # Group 75%+ divided into 5 sub-bars
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 75) & 
-                (RiceGrain.belly_white_ratio <= 82), 1
-            ), else_=0)).label("group_5_1"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 82) & 
-                (RiceGrain.belly_white_ratio <= 87), 1
-            ), else_=0)).label("group_5_2"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 87) & 
-                (RiceGrain.belly_white_ratio <= 91), 1
-            ), else_=0)).label("group_5_3"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 91) & 
-                (RiceGrain.belly_white_ratio <= 96), 1
-            ), else_=0)).label("group_5_4"),
-            func.sum(case((
-                (RiceGrain.belly_white_ratio > 96), 1
-            ), else_=0)).label("group_5_5"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 75) & (RiceGrain.belly_white_ratio <= 82), 1), else_=0)).label("group_5_1"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 82) & (RiceGrain.belly_white_ratio <= 87), 1), else_=0)).label("group_5_2"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 87) & (RiceGrain.belly_white_ratio <= 91), 1), else_=0)).label("group_5_3"),
+            func.sum(case(((RiceGrain.belly_white_ratio > 91) & (RiceGrain.belly_white_ratio <= 96), 1), else_=0)).label("group_5_4"),
+            func.sum(case((RiceGrain.belly_white_ratio > 96, 1), else_=0)).label("group_5_5"),
         )
         .join(Classified, RiceGrain.classified_id == Classified.classified_id)
         .filter(RiceGrain.classified_id  == inspection_id)
@@ -385,49 +319,19 @@ def get_inspection_summary(db: Session, inspection_id: int):
     # Calculate group totals
     group_0 = int(row.group_0 or 0)
     
-    group_1_bars = [
-        int(row.group_1_1 or 0),
-        int(row.group_1_2 or 0),
-        int(row.group_1_3 or 0),
-        int(row.group_1_4 or 0),
-        int(row.group_1_5 or 0),
-    ]
+    group_1_bars = [int(row.group_1_1 or 0), int(row.group_1_2 or 0), int(row.group_1_3 or 0), int(row.group_1_4 or 0), int(row.group_1_5 or 0)]
     group_1_total = sum(group_1_bars)
     
-    group_2_bars = [
-        int(row.group_2_1 or 0),
-        int(row.group_2_2 or 0),
-        int(row.group_2_3 or 0),
-        int(row.group_2_4 or 0),
-        int(row.group_2_5 or 0),
-    ]
+    group_2_bars = [int(row.group_2_1 or 0), int(row.group_2_2 or 0), int(row.group_2_3 or 0), int(row.group_2_4 or 0), int(row.group_2_5 or 0)]
     group_2_total = sum(group_2_bars)
     
-    group_3_bars = [
-        int(row.group_3_1 or 0),
-        int(row.group_3_2 or 0),
-        int(row.group_3_3 or 0),
-        int(row.group_3_4 or 0),
-        int(row.group_3_5 or 0),
-    ]
+    group_3_bars = [int(row.group_3_1 or 0), int(row.group_3_2 or 0), int(row.group_3_3 or 0), int(row.group_3_4 or 0), int(row.group_3_5 or 0)]
     group_3_total = sum(group_3_bars)
     
-    group_4_bars = [
-        int(row.group_4_1 or 0),
-        int(row.group_4_2 or 0),
-        int(row.group_4_3 or 0),
-        int(row.group_4_4 or 0),
-        int(row.group_4_5 or 0),
-    ]
+    group_4_bars = [int(row.group_4_1 or 0), int(row.group_4_2 or 0), int(row.group_4_3 or 0), int(row.group_4_4 or 0), int(row.group_4_5 or 0)]
     group_4_total = sum(group_4_bars)
     
-    group_5_bars = [
-        int(row.group_5_1 or 0),
-        int(row.group_5_2 or 0),
-        int(row.group_5_3 or 0),
-        int(row.group_5_4 or 0),
-        int(row.group_5_5 or 0),
-    ]
+    group_5_bars = [int(row.group_5_1 or 0), int(row.group_5_2 or 0), int(row.group_5_3 or 0), int(row.group_5_4 or 0), int(row.group_5_5 or 0)]
     group_5_total = sum(group_5_bars)
 
     return {
@@ -503,7 +407,7 @@ def get_unit_summary_all(db: Session, unit_id: int):
         "total": len(ratios),
     }
 
-def build_summary(ratios: list[float]):
+def build_summary(ratios: list):  # 🚀 แก้ list[float] เป็น list ธรรมดาให้แล้ว
     ranges = {
         "0": {"label": "0%", "min": 0, "max": 0},
         "1": {"label": "1-10%", "min": 0.01, "max": 10},
@@ -529,6 +433,7 @@ def build_summary(ratios: list[float]):
         }
 
     return summary
+
 def list_ricegrains_by_inspection(db: Session, classified_id: int, level: int = None):
     """Return rice grains along with inspection_id and round_number."""
     
@@ -641,7 +546,6 @@ def search_units(
     # -------------------------
     # MAIN QUERY
     # -------------------------
-    # subquery: latest inspection datetime per unit (used to show latest inspection date)
     insp_max = (
         db.query(
             Inspection.unit_id.label("unit_id"),
@@ -678,7 +582,7 @@ def search_units(
         count_query = count_query.filter(Unit.unit_name.ilike(f"%{keyword}%"))
 
     # -------------------------
-    # FILTER: date range -> use latest inspection per unit within range
+    # FILTER: date range
     # -------------------------
     if date_min or date_max:
         start_dt = None
@@ -700,7 +604,6 @@ def search_units(
             insp_q = insp_q.filter(Inspection.date_time <= end_dt)
         insp_q = insp_q.group_by(Inspection.unit_id).subquery()
 
-        # join units to their latest inspection in range, then ricegrains for that inspection
         data_query = (
             db.query(
                 Unit.unit_id,
@@ -723,9 +626,6 @@ def search_units(
 
     total = count_query.count()
 
-    # -------------------------
-    # EXECUTE
-    # -------------------------
     items = (
         data_query
         .order_by(Unit.unit_id.desc())
@@ -747,7 +647,6 @@ def search_units(
         "total": total
     }
 
-
 def dropdown_units(db: Session):
     units = db.query(Unit.unit_id, Unit.unit_name)\
         .order_by(Unit.unit_name.asc())\
@@ -761,14 +660,7 @@ def dropdown_units(db: Session):
         for u in units
     ]
 
-
 def create_next_inspection(db: Session, unit_id: int):
-    """
-    สร้าง inspection ใหม่ของ unit
-    inspection_id จะ auto +1 จากของเดิม
-    """
-
-
     new_inspection = Inspection(
         unit_id=unit_id,
         date_time=datetime.utcnow()
@@ -787,6 +679,8 @@ def get_dropdown_inspections(db: Session, unit_id: int):
     """
     คืน inspection_id ที่ยังตรวจได้ไม่ครบ 3 รอบ
     """
+    # 🚀 4. ดึงตัวแปลงลำดับ
+    local_insp_map = get_local_inspection_mapping(db, unit_id)
 
     rows = (
         db.query(
@@ -807,7 +701,8 @@ def get_dropdown_inspections(db: Session, unit_id: int):
     return [
         {
             "value": r.inspection_id,
-            "label": f"ครั้งที่ {r.inspection_id} (เหลือ {3 - r.round_count} รอบ)",
+            # 🚀 5. เปลี่ยนมาใช้ค่าที่แปลงเป็นลำดับแล้ว
+            "label": f"ครั้งที่ {local_insp_map.get(r.inspection_id, r.inspection_id)} (เหลือ {3 - r.round_count} รอบ)",
             "remaining": 3 - r.round_count,
             "next_round": r.round_count + 1
         }
