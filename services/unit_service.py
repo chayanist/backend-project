@@ -15,11 +15,8 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parents[1] 
 STORE_DIR = BASE_DIR / "ai_engine" / "store"
 
+# 🚀 ฟังก์ชันช่วยแปลงเลข ID ฐานข้อมูล เป็นเลขลำดับ 1, 2, 3... ของหน่วยงานนั้นๆ
 def get_local_inspection_mapping(db: Session, unit_id: int) -> dict:
-    """
-    คืนค่า Dict ที่แปลงจาก inspection_id ฐานข้อมูล ให้เป็นลำดับที่ 1, 2, 3... ของหน่วยงานนั้น
-    เช่น {4: 1, 5: 2, 6: 3}
-    """
     rows = (
         db.query(Inspection.inspection_id)
         .filter(Inspection.unit_id == unit_id)
@@ -31,17 +28,15 @@ def get_local_inspection_mapping(db: Session, unit_id: int) -> dict:
 def create_unit(db: Session, unit_name: str):
     unit = Unit(
         unit_name=unit_name, 
-        create_date=datetime.now()  
+        create_date=datetime.now()  # 🚀 เพิ่มบันทึกเวลา
     )
     db.add(unit)
     db.commit()
     db.refresh(unit)
     return unit
 
-
 def get_unit(db: Session, unit_id: int):
     return db.query(Unit).filter(Unit.unit_id == unit_id).first()
-
 
 def get_unit_report(
     db: Session,
@@ -59,12 +54,10 @@ def get_unit_report(
     # =========================
     # 1️⃣ Query inspection summary
     # =========================
-
     inspection_query = (
         db.query(
             Inspection.inspection_id,
             Inspection.date_time,
-
             func.sum(Classified.level5).label("lv5"),
             func.sum(Classified.level4).label("lv4"),
             func.sum(Classified.level3).label("lv3"),
@@ -79,25 +72,15 @@ def get_unit_report(
     )
 
     if min_date:
-        inspection_query = inspection_query.filter(
-            Inspection.date_time >= min_date
-        )
-
+        inspection_query = inspection_query.filter(Inspection.date_time >= min_date)
     if max_date:
-        inspection_query = inspection_query.filter(
-            Inspection.date_time <= max_date
-        )
+        inspection_query = inspection_query.filter(Inspection.date_time <= max_date)
 
-    inspections = (
-        inspection_query
-        .order_by(Inspection.inspection_id.desc())
-        .all()
-    )
+    inspections = inspection_query.order_by(Inspection.inspection_id.desc()).all()
 
     # =========================
     # 2️⃣ Build items + subRounds
     # =========================
-
     items = []
 
     for ins in inspections:
@@ -110,7 +93,6 @@ def get_unit_report(
                 Classified.classified_id,
                 Classified.round_number,
                 Classified.date_time,
-
                 Classified.level5,
                 Classified.level4,
                 Classified.level3,
@@ -128,8 +110,7 @@ def get_unit_report(
             {
                 "id": c.classified_id,  # ⭐ ใช้ id นี้ยิง graph/classified
                 "roundNumber": c.round_number,
-                "date": c.date_time.strftime("%d/%m/%Y")
-                if c.date_time else None,
+                "date": c.date_time.strftime("%d/%m/%Y") if c.date_time else None,
                 "lv5": int(c.level5 or 0),
                 "lv4": int(c.level4 or 0),
                 "lv3": int(c.level3 or 0),
@@ -144,7 +125,7 @@ def get_unit_report(
         items.append(
             {
                 "id": ins.inspection_id,
-                "local_insp_no": local_no,             # 🚀 ส่งลำดับจริง 1,2,3 ไปให้ Frontend
+                "local_insp_no": local_no,             
                 "display_name": f"ครั้งที่ {local_no}", # 🚀 ส่งคำว่า "ครั้งที่ 1" ไปให้
                 "date": ins.date_time.strftime("%d/%m/%Y") if ins.date_time else "-",
                 "lv5": int(ins.lv5 or 0),
@@ -161,7 +142,6 @@ def get_unit_report(
     # =========================
     # 3️⃣ Summary รวมทั้งหมด
     # =========================
-
     summary = {
         "lv5": sum(d["lv5"] for d in items),
         "lv4": sum(d["lv4"] for d in items),
@@ -179,17 +159,23 @@ def get_unit_report(
     }
 
 def get_inspection_report(db: Session, inspection_id: int):
-
-    # 🚀 1. ดึงชื่อหน่วยงานโดยหาจาก inspection_id
+    # 🚀 1. ดึงชื่อหน่วยงานและ unit_id โดยหาจาก inspection_id
     unit_info = (
-        db.query(Unit.unit_name)
+        db.query(Unit.unit_name, Inspection.unit_id)
         .join(Inspection, Inspection.unit_id == Unit.unit_id)
         .filter(Inspection.inspection_id == inspection_id)
         .first()
     )
-    unit_name = unit_info.unit_name if unit_info else "-"
+    
+    unit_name = "-"
+    display_insp_id = inspection_id 
 
-    # 🚀 2. ดึงข้อมูลรายงานตามปกติ
+    if unit_info:
+        unit_name = unit_info.unit_name
+        # 🚀 2. ใช้ตัวแปลงลำดับ เพื่อเปลี่ยนจาก ID ดิบให้เป็น 1, 2, 3...
+        local_insp_map = get_local_inspection_mapping(db, unit_info.unit_id)
+        display_insp_id = local_insp_map.get(inspection_id, inspection_id)
+
     rows = (
         db.query(
             Classified.classified_id,
@@ -238,7 +224,6 @@ def get_inspection_report(db: Session, inspection_id: int):
     for r in rows:
         if r.overall is None:
             continue
-
         accuracy.append({
             "classifiedId": r.classified_id,
             "roundNumber": r.round_number,
@@ -251,59 +236,69 @@ def get_inspection_report(db: Session, inspection_id: int):
             "overall": r.overall or 0,
         })
 
-    # 🚀 3. แนบชื่อหน่วยงานส่งกลับไปให้ Frontend ตรงนี้
     return {
         "unit_name": unit_name,
+        "inspection_id": display_insp_id, # 🚀 ส่งเลขที่แปลงแล้ว
         "summary": summary,
         "accuracy": accuracy
     }
 
 def get_inspection_summary(db: Session, inspection_id: int):
-    # 🚀 1. ดึงข้อมูล ครั้งที่ (inspection_id) และ รอบที่ (round_number) 
+    # 🚀 1. ดึงข้อมูล ครั้งที่ (inspection_id), รอบที่ (round_number) และ unit_id
     classified_info = (
-        db.query(Classified.inspection_id, Classified.round_number)
+        db.query(Classified.inspection_id, Classified.round_number, Inspection.unit_id)
+        .join(Inspection, Inspection.inspection_id == Classified.inspection_id)
         .filter(Classified.classified_id == inspection_id)
         .first()
     )
     
-    real_insp_id = classified_info.inspection_id if classified_info else "-"
-    round_no = classified_info.round_number if classified_info else "-"
+    display_insp_id = "-"
+    round_no = "-"
+
+    if classified_info:
+        real_insp_id = classified_info.inspection_id
+        round_no = classified_info.round_number
+        unit_id = classified_info.unit_id
+
+        # 🚀 2. แปลงลำดับ
+        local_insp_map = get_local_inspection_mapping(db, unit_id)
+        display_insp_id = local_insp_map.get(real_insp_id, real_insp_id)
 
     row = (
         db.query(
             func.count(RiceGrain.rice_grain_id).label("total"),
-            
+
             # Group 0: ratio = 0
             func.sum(case((RiceGrain.belly_white_ratio == 0, 1), else_=0)).label("group_0"),
-            
+
             # Group 1-10% divided into 5 sub-bars
             func.sum(case(((RiceGrain.belly_white_ratio > 0) & (RiceGrain.belly_white_ratio <= 2), 1), else_=0)).label("group_1_1"),
             func.sum(case(((RiceGrain.belly_white_ratio > 2) & (RiceGrain.belly_white_ratio <= 4), 1), else_=0)).label("group_1_2"),
             func.sum(case(((RiceGrain.belly_white_ratio > 4) & (RiceGrain.belly_white_ratio <= 6), 1), else_=0)).label("group_1_3"),
             func.sum(case(((RiceGrain.belly_white_ratio > 6) & (RiceGrain.belly_white_ratio <= 8), 1), else_=0)).label("group_1_4"),
             func.sum(case(((RiceGrain.belly_white_ratio > 8) & (RiceGrain.belly_white_ratio <= 10), 1), else_=0)).label("group_1_5"),
-            
+
             # Group 11-24% divided into 5 sub-bars
             func.sum(case(((RiceGrain.belly_white_ratio > 10) & (RiceGrain.belly_white_ratio <= 13.3), 1), else_=0)).label("group_2_1"),
             func.sum(case(((RiceGrain.belly_white_ratio > 13.3) & (RiceGrain.belly_white_ratio <= 16.6), 1), else_=0)).label("group_2_2"),
             func.sum(case(((RiceGrain.belly_white_ratio > 16.6) & (RiceGrain.belly_white_ratio <= 19.9), 1), else_=0)).label("group_2_3"),
             func.sum(case(((RiceGrain.belly_white_ratio > 19.9) & (RiceGrain.belly_white_ratio <= 21.7), 1), else_=0)).label("group_2_4"),
             func.sum(case(((RiceGrain.belly_white_ratio > 21.7) & (RiceGrain.belly_white_ratio <= 24), 1), else_=0)).label("group_2_5"),
-            
+
             # Group 25-50% divided into 5 sub-bars
             func.sum(case(((RiceGrain.belly_white_ratio > 24) & (RiceGrain.belly_white_ratio <= 30), 1), else_=0)).label("group_3_1"),
             func.sum(case(((RiceGrain.belly_white_ratio > 30) & (RiceGrain.belly_white_ratio <= 35), 1), else_=0)).label("group_3_2"),
             func.sum(case(((RiceGrain.belly_white_ratio > 35) & (RiceGrain.belly_white_ratio <= 40), 1), else_=0)).label("group_3_3"),
             func.sum(case(((RiceGrain.belly_white_ratio > 40) & (RiceGrain.belly_white_ratio <= 45), 1), else_=0)).label("group_3_4"),
             func.sum(case(((RiceGrain.belly_white_ratio > 45) & (RiceGrain.belly_white_ratio <= 50), 1), else_=0)).label("group_3_5"),
-            
+
             # Group 51-75% divided into 5 sub-bars
             func.sum(case(((RiceGrain.belly_white_ratio > 50) & (RiceGrain.belly_white_ratio <= 59), 1), else_=0)).label("group_4_1"),
             func.sum(case(((RiceGrain.belly_white_ratio > 59) & (RiceGrain.belly_white_ratio <= 63), 1), else_=0)).label("group_4_2"),
             func.sum(case(((RiceGrain.belly_white_ratio > 63) & (RiceGrain.belly_white_ratio <= 67), 1), else_=0)).label("group_4_3"),
             func.sum(case(((RiceGrain.belly_white_ratio > 67) & (RiceGrain.belly_white_ratio <= 71), 1), else_=0)).label("group_4_4"),
             func.sum(case(((RiceGrain.belly_white_ratio > 71) & (RiceGrain.belly_white_ratio <= 75), 1), else_=0)).label("group_4_5"),
-            
+
             # Group 75%+ divided into 5 sub-bars
             func.sum(case(((RiceGrain.belly_white_ratio > 75) & (RiceGrain.belly_white_ratio <= 82), 1), else_=0)).label("group_5_1"),
             func.sum(case(((RiceGrain.belly_white_ratio > 82) & (RiceGrain.belly_white_ratio <= 87), 1), else_=0)).label("group_5_2"),
@@ -316,79 +311,60 @@ def get_inspection_summary(db: Session, inspection_id: int):
         .first()
     )
 
-    # Calculate group totals
-    group_0 = int(row.group_0 or 0)
-    
-    group_1_bars = [int(row.group_1_1 or 0), int(row.group_1_2 or 0), int(row.group_1_3 or 0), int(row.group_1_4 or 0), int(row.group_1_5 or 0)]
+    group_0 = int(row.group_0 or 0) if row else 0
+    group_1_bars = [int(row.group_1_1 or 0) if row else 0, int(row.group_1_2 or 0) if row else 0, int(row.group_1_3 or 0) if row else 0, int(row.group_1_4 or 0) if row else 0, int(row.group_1_5 or 0) if row else 0]
     group_1_total = sum(group_1_bars)
-    
-    group_2_bars = [int(row.group_2_1 or 0), int(row.group_2_2 or 0), int(row.group_2_3 or 0), int(row.group_2_4 or 0), int(row.group_2_5 or 0)]
+    group_2_bars = [int(row.group_2_1 or 0) if row else 0, int(row.group_2_2 or 0) if row else 0, int(row.group_2_3 or 0) if row else 0, int(row.group_2_4 or 0) if row else 0, int(row.group_2_5 or 0) if row else 0]
     group_2_total = sum(group_2_bars)
-    
-    group_3_bars = [int(row.group_3_1 or 0), int(row.group_3_2 or 0), int(row.group_3_3 or 0), int(row.group_3_4 or 0), int(row.group_3_5 or 0)]
+    group_3_bars = [int(row.group_3_1 or 0) if row else 0, int(row.group_3_2 or 0) if row else 0, int(row.group_3_3 or 0) if row else 0, int(row.group_3_4 or 0) if row else 0, int(row.group_3_5 or 0) if row else 0]
     group_3_total = sum(group_3_bars)
-    
-    group_4_bars = [int(row.group_4_1 or 0), int(row.group_4_2 or 0), int(row.group_4_3 or 0), int(row.group_4_4 or 0), int(row.group_4_5 or 0)]
+    group_4_bars = [int(row.group_4_1 or 0) if row else 0, int(row.group_4_2 or 0) if row else 0, int(row.group_4_3 or 0) if row else 0, int(row.group_4_4 or 0) if row else 0, int(row.group_4_5 or 0) if row else 0]
     group_4_total = sum(group_4_bars)
-    
-    group_5_bars = [int(row.group_5_1 or 0), int(row.group_5_2 or 0), int(row.group_5_3 or 0), int(row.group_5_4 or 0), int(row.group_5_5 or 0)]
+    group_5_bars = [int(row.group_5_1 or 0) if row else 0, int(row.group_5_2 or 0) if row else 0, int(row.group_5_3 or 0) if row else 0, int(row.group_5_4 or 0) if row else 0, int(row.group_5_5 or 0) if row else 0]
     group_5_total = sum(group_5_bars)
 
     return {
-        "inspection_id": real_insp_id,  
+        "inspection_id": display_insp_id,  # 🚀 ส่งลำดับที่แปลงแล้วไปให้
         "round_number": round_no,      
         "summary": {
             "0": {
-                "label": "0%",
-                "count": group_0,
-                "percentage": round((group_0 / int(row.total or 1)) * 100, 2)
+                "label": "0%", "count": group_0,
+                "percentage": round((group_0 / int(row.total or 1)) * 100, 2) if row and row.total else 0
             },
             "1": {
-                "label": "1-10%",
-                "count": group_1_total,
-                "percentage": round((group_1_total / int(row.total or 1)) * 100, 2),
-                "bars": group_1_bars,
-                "labels": ["0-2%", "2-4%", "4-6%", "6-8%", "8-10%"]
+                "label": "1-10%", "count": group_1_total,
+                "percentage": round((group_1_total / int(row.total or 1)) * 100, 2) if row and row.total else 0,
+                "bars": group_1_bars, "labels": ["0-2%", "2-4%", "4-6%", "6-8%", "8-10%"]
             },
             "2": {
-                "label": "11-24%",
-                "count": group_2_total,
-                "percentage": round((group_2_total / int(row.total or 1)) * 100, 2),
-                "bars": group_2_bars,
-                "labels": ["11-13.3%", "13.3-16.6%", "16.6-19.9%", "19.9-21.7%", "21.7-24%"]
+                "label": "11-24%", "count": group_2_total,
+                "percentage": round((group_2_total / int(row.total or 1)) * 100, 2) if row and row.total else 0,
+                "bars": group_2_bars, "labels": ["11-13.3%", "13.3-16.6%", "16.6-19.9%", "19.9-21.7%", "21.7-24%"]
             },
             "3": {
-                "label": "25-50%",
-                "count": group_3_total,
-                "percentage": round((group_3_total / int(row.total or 1)) * 100, 2),
-                "bars": group_3_bars,
-                "labels": ["25-30%", "30-35%", "35-40%", "40-45%", "45-50%"]
+                "label": "25-50%", "count": group_3_total,
+                "percentage": round((group_3_total / int(row.total or 1)) * 100, 2) if row and row.total else 0,
+                "bars": group_3_bars, "labels": ["25-30%", "30-35%", "35-40%", "40-45%", "45-50%"]
             },
             "4": {
-                "label": "51-75%",
-                "count": group_4_total,
-                "percentage": round((group_4_total / int(row.total or 1)) * 100, 2),
-                "bars": group_4_bars,
-                "labels": ["50-59%", "59-63%", "63-67%", "67-71%", "71-75%"]
+                "label": "51-75%", "count": group_4_total,
+                "percentage": round((group_4_total / int(row.total or 1)) * 100, 2) if row and row.total else 0,
+                "bars": group_4_bars, "labels": ["50-59%", "59-63%", "63-67%", "67-71%", "71-75%"]
             },
             "5": {
-                "label": "75%+",
-                "count": group_5_total,
-                "percentage": round((group_5_total / int(row.total or 1)) * 100, 2),
-                "bars": group_5_bars,
-                "labels": ["75-82%", "82-87%", "87-91%", "91-96%", "96-100%"]
+                "label": "75%+", "count": group_5_total,
+                "percentage": round((group_5_total / int(row.total or 1)) * 100, 2) if row and row.total else 0,
+                "bars": group_5_bars, "labels": ["75-82%", "82-87%", "87-91%", "91-96%", "96-100%"]
             }
         },
         "total": int(row.total or 0) if row else 0,
     }
-
 
 def convert_path_to_url(file_path: str):
     base_path = "/home/ricebelly/riceBellyProjectV4/ai_engine/store/"
     return file_path.replace(base_path, "/images/")
 
 def get_unit_summary_all(db: Session, unit_id: int):
-    # ดึง belly_white_ratio ทั้งหมดของ unit
     rows = (
         db.query(RiceGrain.belly_white_ratio)
         .join(Classified, RiceGrain.classified_id == Classified.classified_id)
@@ -396,18 +372,14 @@ def get_unit_summary_all(db: Session, unit_id: int):
         .filter(Inspection.unit_id == unit_id)
         .all()
     )
-
     ratios = [r[0] for r in rows if r[0] is not None]
-
     summary = build_summary(ratios)
-    print("UNIT:", unit_id)
-    print("ROWS:", len(rows))
     return {
         "summary": summary,
         "total": len(ratios),
     }
 
-def build_summary(ratios: list):  # 🚀 แก้ list[float] เป็น list ธรรมดาให้แล้ว
+def build_summary(ratios: list):
     ranges = {
         "0": {"label": "0%", "min": 0, "max": 0},
         "1": {"label": "1-10%", "min": 0.01, "max": 10},
@@ -416,38 +388,38 @@ def build_summary(ratios: list):  # 🚀 แก้ list[float] เป็น list
         "4": {"label": "51-75%", "min": 51, "max": 75},
         "5": {"label": "75%+", "min": 75.01, "max": 100},
     }
-
     summary = {}
-
     total = len(ratios)
-
     for key, r in ranges.items():
         count = sum(1 for v in ratios if r["min"] <= v <= r["max"])
-
         percentage = round((count / total) * 100, 2) if total else 0
-
         summary[key] = {
             "label": r["label"],
             "count": count,
             "percentage": percentage,
         }
-
     return summary
 
 def list_ricegrains_by_inspection(db: Session, classified_id: int, level: int = None):
-    """Return rice grains along with inspection_id and round_number."""
-    
-    # 🚀 1. ดึงข้อมูล inspection_id และ round_number จากตาราง Classified
+    # 🚀 1. ดึงข้อมูลและแปลงลำดับ
     classified_info = (
-        db.query(Classified.inspection_id, Classified.round_number)
+        db.query(Classified.inspection_id, Classified.round_number, Inspection.unit_id)
+        .join(Inspection, Inspection.inspection_id == Classified.inspection_id)
         .filter(Classified.classified_id == classified_id)
         .first()
     )
     
-    insp_id = classified_info.inspection_id if classified_info else "-"
-    round_no = classified_info.round_number if classified_info else "-"
+    display_insp_id = "-"
+    round_no = "-"
 
-    # 🚀 2. ดึงข้อมูลเมล็ดข้าวตามปกติ
+    if classified_info:
+        real_insp_id = classified_info.inspection_id
+        round_no = classified_info.round_number
+        unit_id = classified_info.unit_id
+
+        local_insp_map = get_local_inspection_mapping(db, unit_id)
+        display_insp_id = local_insp_map.get(real_insp_id, real_insp_id)
+
     query = (
         db.query(
             RiceGrain.rice_grain_id,
@@ -458,18 +430,12 @@ def list_ricegrains_by_inspection(db: Session, classified_id: int, level: int = 
     )
 
     if level is not None:
-        if level == 0:
-            query = query.filter(RiceGrain.belly_white_ratio == 0)
-        elif level == 1:
-            query = query.filter(RiceGrain.belly_white_ratio > 0, RiceGrain.belly_white_ratio <= 10)
-        elif level == 2:
-            query = query.filter(RiceGrain.belly_white_ratio > 10, RiceGrain.belly_white_ratio <= 24)
-        elif level == 3:
-            query = query.filter(RiceGrain.belly_white_ratio > 24, RiceGrain.belly_white_ratio <= 50)
-        elif level == 4:
-            query = query.filter(RiceGrain.belly_white_ratio > 50, RiceGrain.belly_white_ratio <= 75)
-        elif level == 5:
-            query = query.filter(RiceGrain.belly_white_ratio > 75)
+        if level == 0: query = query.filter(RiceGrain.belly_white_ratio == 0)
+        elif level == 1: query = query.filter(RiceGrain.belly_white_ratio > 0, RiceGrain.belly_white_ratio <= 10)
+        elif level == 2: query = query.filter(RiceGrain.belly_white_ratio > 10, RiceGrain.belly_white_ratio <= 24)
+        elif level == 3: query = query.filter(RiceGrain.belly_white_ratio > 24, RiceGrain.belly_white_ratio <= 50)
+        elif level == 4: query = query.filter(RiceGrain.belly_white_ratio > 50, RiceGrain.belly_white_ratio <= 75)
+        elif level == 5: query = query.filter(RiceGrain.belly_white_ratio > 75)
 
     rows = query.order_by(RiceGrain.rice_grain_id.asc()).all()
 
@@ -482,9 +448,8 @@ def list_ricegrains_by_inspection(db: Session, classified_id: int, level: int = 
         for r in rows
     ]
 
-    # 🚀 3. จัด Format ส่งกลับไปให้ Frontend แบบมี Header บอกข้อมูลรอบ
     return {
-        "inspection_id": insp_id,
+        "inspection_id": display_insp_id,  # 🚀 ส่งลำดับที่แปลงแล้ว
         "round_number": round_no,
         "grains": grains
     }
@@ -496,14 +461,10 @@ def update_unit(db: Session, unit_id: int, unit_name: str):
         db.commit()
     return unit
 
-
 def delete_unit(db: Session, unit_id: int):
     unit = get_unit(db, unit_id)
-    if not unit:
-        return
-
+    if not unit: return
     try:
-        # 1️⃣ ดึง image path ทั้งหมดของ unit นี้
         ricegrain_images = (
             db.query(RiceGrain.image)
             .join(Classified, RiceGrain.classified_id == Classified.classified_id)
@@ -511,41 +472,27 @@ def delete_unit(db: Session, unit_id: int):
             .filter(Inspection.unit_id == unit_id)
             .all()
         )
-
         folders_to_delete = set()
-
         for row in ricegrain_images:
             if row.image:
                 folder_path = Path(row.image).parent
                 if folder_path.exists():
                     folders_to_delete.add(folder_path)
 
-        # 2️⃣ ลบโฟลเดอร์
         for folder in folders_to_delete:
             try:
                 shutil.rmtree(folder)
-                print(f"[System] Deleted folder: {folder}")
             except Exception as e:
-                print(f"[Error] Could not delete folder {folder}: {e}")
+                pass
 
         # 3️⃣ ลบ unit (มี ON DELETE CASCADE แล้ว)
         db.delete(unit)
         db.commit()
-
     except Exception as e:
         db.rollback()
-        print(f"[Error] Process failed: {e}")
         raise e
 
-def search_units(
-    db: Session,
-    keyword: str = "",
-    date_min: str = "",
-    date_max: str = "",
-):
-    # -------------------------
-    # MAIN QUERY
-    # -------------------------
+def search_units(db: Session, keyword: str = "", date_min: str = "", date_max: str = ""):
     insp_max = (
         db.query(
             Inspection.unit_id.label("unit_id"),
@@ -569,21 +516,12 @@ def search_units(
         .group_by(Unit.unit_id, Unit.unit_name, insp_max.c.max_dt)
     )
 
-    # -------------------------
-    # COUNT QUERY
-    # -------------------------
     count_query = db.query(Unit)
 
-    # -------------------------
-    # FILTER: keyword
-    # -------------------------
     if keyword:
         data_query = data_query.filter(Unit.unit_name.ilike(f"%{keyword}%"))
         count_query = count_query.filter(Unit.unit_name.ilike(f"%{keyword}%"))
 
-    # -------------------------
-    # FILTER: date range
-    # -------------------------
     if date_min or date_max:
         start_dt = None
         end_dt = None
@@ -625,12 +563,7 @@ def search_units(
         )
 
     total = count_query.count()
-
-    items = (
-        data_query
-        .order_by(Unit.unit_id.desc())
-        .all()
-    )
+    items = data_query.order_by(Unit.unit_id.desc()).all()
 
     result = [
         {
@@ -648,38 +581,18 @@ def search_units(
     }
 
 def dropdown_units(db: Session):
-    units = db.query(Unit.unit_id, Unit.unit_name)\
-        .order_by(Unit.unit_name.asc())\
-        .all()
-
-    return [
-        {
-            "value": u.unit_id,
-            "label": u.unit_name
-        }
-        for u in units
-    ]
+    units = db.query(Unit.unit_id, Unit.unit_name).order_by(Unit.unit_name.asc()).all()
+    return [{"value": u.unit_id, "label": u.unit_name} for u in units]
 
 def create_next_inspection(db: Session, unit_id: int):
-    new_inspection = Inspection(
-        unit_id=unit_id,
-        date_time=datetime.utcnow()
-    )
-
+    new_inspection = Inspection(unit_id=unit_id, date_time=datetime.utcnow())
     db.add(new_inspection)
     db.commit()
     db.refresh(new_inspection)
-
-    return {
-        "inspection_id": new_inspection.inspection_id
-    }
-
+    return {"inspection_id": new_inspection.inspection_id}
 
 def get_dropdown_inspections(db: Session, unit_id: int):
-    """
-    คืน inspection_id ที่ยังตรวจได้ไม่ครบ 3 รอบ
-    """
-    # 🚀 4. ดึงตัวแปลงลำดับ
+    # 🚀 แปลงเลขสำหรับ Dropdown ครั้งที่
     local_insp_map = get_local_inspection_mapping(db, unit_id)
 
     rows = (
@@ -687,10 +600,7 @@ def get_dropdown_inspections(db: Session, unit_id: int):
             Inspection.inspection_id,
             func.count(func.distinct(Classified.classified_id)).label("round_count")
         )
-        .outerjoin(
-            Classified,
-            Classified.inspection_id == Inspection.inspection_id
-        )
+        .outerjoin(Classified, Classified.inspection_id == Inspection.inspection_id)
         .filter(Inspection.unit_id == unit_id)
         .group_by(Inspection.inspection_id)
         .having(func.count(func.distinct(Classified.classified_id)) < 3)
