@@ -10,11 +10,51 @@ from datetime import datetime, time
 import shutil
 import os
 from pathlib import Path
-
+from sqlalchemy.orm import Session
+from datetime import datetime
+from models.unit import Unit
+from models.inspection import Inspection
+from models.classified import Classified
 # กำหนด Path หลักของโปรเจกต์ (ปรับให้ตรงกับเครื่องของคุณ)
 BASE_DIR = Path(__file__).resolve().parents[1] 
 STORE_DIR = BASE_DIR / "ai_engine" / "store"
 
+def get_all_units_report(db: Session, min_date=None, max_date=None):
+    # 🚀 แก้ไขชื่อฟิลด์จาก lv5 -> level5 ตาม ER Diagram
+    query = db.query(
+        Unit.unit_name.label("unitName"),
+        Classified.date_time.label("date"),
+        Classified.level5.label("lv5"), # ดึง level5 แต่ตั้งชื่อเล่น (alias) ว่า lv5
+        Classified.level4.label("lv4"),
+        Classified.level3.label("lv3"),
+        Classified.level2.label("lv2"),
+        Classified.level1.label("lv1"),
+        Classified.level0.label("lv0"),
+        Classified.total
+    ).join(Inspection, Unit.unit_id == Inspection.unit_id)\
+     .join(Classified, Inspection.inspection_id == Classified.inspection_id)
+
+    if min_date:
+        query = query.filter(Classified.date_time >= min_date)
+    if max_date:
+        query = query.filter(Classified.date_time <= max_date)
+
+    results = query.all()
+    
+    # แปลงผลลัพธ์เป็น list ของ dictionary เพื่อส่งให้ Frontend
+    return [
+        {
+            "unitName": r.unitName,
+            "date": r.date.strftime("%Y-%m-%d %H:%M") if r.date else None,
+            "lv5": r.lv5,
+            "lv4": r.lv4,
+            "lv3": r.lv3,
+            "lv2": r.lv2,
+            "lv1": r.lv1,
+            "lv0": r.lv0,
+            "total": r.total
+        } for r in results
+    ]
 # 🚀 ฟังก์ชันช่วยแปลงเลข ID ฐานข้อมูล เป็นเลขลำดับ 1, 2, 3... ของหน่วยงานนั้นๆ
 def get_local_inspection_mapping(db: Session, unit_id: int) -> dict:
     rows = (

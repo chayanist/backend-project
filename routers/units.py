@@ -114,3 +114,14 @@ def dropdown_inspection(
 ):
     data =  get_dropdown_inspections(db, unit_id)
     return success(data, MessageEnum.SUCCESS)
+
+@router.get("/report/compare-all")
+def compare_all_units(
+    min_date: datetime | None = None,
+    max_date: datetime | None = None,
+    db: Session = Depends(get_db)
+):
+    # ฟังก์ชันนี้ต้องไปสร้างเพิ่มใน services/unit_service.py
+    from services.unit_service import get_all_units_report
+    data = get_all_units_report(db, min_date, max_date)
+    return success(data, MessageEnum.SUCCESS)
