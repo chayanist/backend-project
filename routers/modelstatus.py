@@ -317,7 +317,7 @@ def start(data: dict = Body(...),db: Session = Depends(get_db), current_user: Us
         try:
             python_exe = str(AI_DIR / "venv_ai" / "bin" / "python")
             
-            script_to_run = "main_test_ai.py" if is_basic_mode else "main_ai.py"
+            script_to_run = "accuracy_ai.py" if is_basic_mode else "main_ai.py"
             
             proc = subprocess.Popen(
                 [python_exe, script_to_run],

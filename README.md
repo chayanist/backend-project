@@ -14,7 +14,7 @@ source venv/bin/activate
 
 //WINDOW
 python -m venv venv
-venv\Scripts\activate
+source venv_backend/bin/activate
 
 pip install -r requirements.txt
 
