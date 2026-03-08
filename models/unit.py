@@ -9,4 +9,4 @@ class Unit(Base):
     unit_name = Column(String)
     create_date = Column(DateTime)
 
-    inspections = relationship("Inspection", back_populates="unit")
+    inspections = relationship("Inspection", back_populates="unit", cascade="all, delete")
