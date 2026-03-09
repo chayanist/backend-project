@@ -5,6 +5,10 @@ from core.deps import get_db, get_current_user
 from core.response import success
 from core.messages import MessageEnum
 from models.ricegrain import RiceGrain
+# 🚀 เพิ่ม Import Model ที่ต้องใช้ในการทำ JOIN
+from models.classified import Classified
+from models.inspection import Inspection
+from models.unit import Unit
 
 router = APIRouter(prefix="/home", tags=["home"], dependencies=[Depends(get_current_user)])
 
@@ -20,11 +24,15 @@ COLORS = {
 @router.get("/dashboard")
 def dashboard_summary(db: Session = Depends(get_db)):
 
+    # 🚀 แก้ไขการนับ: บังคับ JOIN ไปหา Unit เพื่อเช็คว่าหน่วยงานยังมีตัวตนอยู่
     rows = (
         db.query(
             RiceGrain.belly_white_level,
             func.count(RiceGrain.rice_grain_id)
         )
+        .join(Classified, RiceGrain.classified_id == Classified.classified_id)
+        .join(Inspection, Classified.inspection_id == Inspection.inspection_id)
+        .join(Unit, Inspection.unit_id == Unit.unit_id) # 👈 พระเอกอยู่ตรงนี้! ถ้ายูนิตถูกลบ เมล็ดข้าวก็จะไม่ถูกนับ
         .group_by(RiceGrain.belly_white_level)
         .all()
     )
