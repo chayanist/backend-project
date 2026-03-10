@@ -276,7 +276,7 @@ def get_inspection_report(db: Session, inspection_id: int):
 
     return {
         "unit_name": unit_name,
-        "inspection_id": display_insp_id, # 🚀 ส่งเลขที่แปลงแล้ว
+        "inspection_id": display_insp_id, 
         "summary": summary,
         "accuracy": accuracy
     }
