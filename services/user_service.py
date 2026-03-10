@@ -37,7 +37,7 @@ def update_user(db: Session, user_id: int, data):
     if not user:
         return None
     # ---------------------------
-    # 🔎 ตรวจสอบ username ซ้ำ
+    #    ตรวจสอบ username ซ้ำ
     # ---------------------------
     if data.username is not None and data.username != user.username:
         existing_username = db.query(User).filter(
@@ -52,7 +52,7 @@ def update_user(db: Session, user_id: int, data):
             )
 
     # ---------------------------
-    # 🔎 ตรวจสอบ email ซ้ำ
+    #    ตรวจสอบ email ซ้ำ
     # ---------------------------
     if data.email is not None and data.email != user.email:
         existing_email = db.query(User).filter(

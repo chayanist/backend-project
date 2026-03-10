@@ -121,7 +121,6 @@ def compare_all_units(
     max_date: datetime | None = None,
     db: Session = Depends(get_db)
 ):
-    # ฟังก์ชันนี้ต้องไปสร้างเพิ่มใน services/unit_service.py
     from services.unit_service import get_all_units_report
     data = get_all_units_report(db, min_date, max_date)
     return success(data, MessageEnum.SUCCESS)

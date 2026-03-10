@@ -74,7 +74,7 @@ def data_sweeper():
 
         db = SessionLocal()
         try:
-            # 🚀 1. ดึง status ล่าสุด (ประยุกต์จาก: ดึง unit_id ล่าสุดที่เพิ่งบันทึกไว้ตอน Stop)
+            #1. ดึง status ล่าสุด (ประยุกต์จาก: ดึง unit_id ล่าสุดที่เพิ่งบันทึกไว้ตอน Stop)
             status_obj = db.query(ModelStatus).filter(ModelStatus.id == 1).first()
             if not status_obj or not status_obj.inspection_id:
                 print("[Sweeper] Error: No active inspection_id found in ModelStatus.")
@@ -82,7 +82,7 @@ def data_sweeper():
             
             current_insp_id = status_obj.inspection_id
 
-            # 🚀 2. รีเซ็ต Sequence ของ Primary Key ทั้งสองตาราง
+            #2. รีเซ็ต Sequence ของ Primary Key ทั้งสองตาราง
             db.execute(text("""
                 -- รีเซ็ตของ ricegrain (ที่มีอยู่แล้ว)
                 SELECT setval(pg_get_serial_sequence('api.ricegrain', 'rice_grain_id'), COALESCE(MAX(rice_grain_id), 0) + 1, false) FROM api.ricegrain;
@@ -121,7 +121,7 @@ def data_sweeper():
                 
                 total_grains = len(grain_data)
 
-                # 🚀 3. สร้างรายการ Classified ใหม่ (แทน: สร้างรายการ Inspection ใหม่)
+                #3. สร้างรายการ Classified ใหม่ (แทน: สร้างรายการ Inspection ใหม่)
                 result = db.execute(text("""
                     INSERT INTO api.classified (
                         inspection_id, level0, level1, level2, level3, level4, level5, total, round_number, date_time
@@ -140,7 +140,7 @@ def data_sweeper():
                 
                 new_classified_id = result.fetchone()[0]
 
-                # 🚀 4. บันทึกข้อมูลเมล็ดข้าวแต่ละเมล็ด
+                #4. บันทึกข้อมูลเมล็ดข้าวแต่ละเมล็ด
                 for item in grain_data:
                     file_name = os.path.basename(item["Image Path"])
                     final_image_path = str(STORE_ROOT / session_dir.name / file_name)
@@ -206,7 +206,7 @@ def clear_signal():
     except Exception as e:
         print(f"[System] Error clearing signal files: {e}")
 
-# ================= 🔌 [WEBSOCKET] =================
+# ================= [WEBSOCKET] =================
 
 @router.websocket("/stream")
 async def stream_websocket(websocket: WebSocket):
@@ -251,7 +251,7 @@ async def stream_websocket(websocket: WebSocket):
     finally:
         ws_connections.discard(websocket)
 
-# ================= 🚀 [API ROUTERS] =================
+# ================= [API ROUTERS] =================
 
 @router.get("/status")
 def get_model_status(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):

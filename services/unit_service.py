@@ -15,16 +15,14 @@ from datetime import datetime
 from models.unit import Unit
 from models.inspection import Inspection
 from models.classified import Classified
-# กำหนด Path หลักของโปรเจกต์ (ปรับให้ตรงกับเครื่องของคุณ)
 BASE_DIR = Path(__file__).resolve().parents[1] 
 STORE_DIR = BASE_DIR / "ai_engine" / "store"
 
 def get_all_units_report(db: Session, min_date=None, max_date=None):
-    # 🚀 แก้ไขชื่อฟิลด์จาก lv5 -> level5 ตาม ER Diagram
     query = db.query(
         Unit.unit_name.label("unitName"),
         Classified.date_time.label("date"),
-        Classified.level5.label("lv5"), # ดึง level5 แต่ตั้งชื่อเล่น (alias) ว่า lv5
+        Classified.level5.label("lv5"),
         Classified.level4.label("lv4"),
         Classified.level3.label("lv3"),
         Classified.level2.label("lv2"),
@@ -55,7 +53,7 @@ def get_all_units_report(db: Session, min_date=None, max_date=None):
             "total": r.total
         } for r in results
     ]
-# 🚀 ฟังก์ชันช่วยแปลงเลข ID ฐานข้อมูล เป็นเลขลำดับ 1, 2, 3... ของหน่วยงานนั้นๆ
+# ฟังก์ชันช่วยแปลงเลข ID ฐานข้อมูล เป็นเลขลำดับ 1, 2, 3... ของหน่วยงานนั้นๆ
 def get_local_inspection_mapping(db: Session, unit_id: int) -> dict:
     rows = (
         db.query(Inspection.inspection_id)
@@ -68,7 +66,7 @@ def get_local_inspection_mapping(db: Session, unit_id: int) -> dict:
 def create_unit(db: Session, unit_name: str):
     unit = Unit(
         unit_name=unit_name, 
-        create_date=datetime.now()  # 🚀 เพิ่มบันทึกเวลา
+        create_date=datetime.now() 
     )
     db.add(unit)
     db.commit()
@@ -84,15 +82,15 @@ def get_unit_report(
     min_date: datetime | None = None,
     max_date: datetime | None = None,
 ):
-    # 🚀 1. ดึงชื่อหน่วยงานจากตาราง Unit เพิ่มเข้ามา
+    # 1. ดึงชื่อหน่วยงานจากตาราง Unit เพิ่มเข้ามา
     unit_obj = db.query(Unit).filter(Unit.unit_id == unit_id).first()
     unit_name = unit_obj.unit_name if unit_obj else f"ไม่ทราบชื่อ ({unit_id})"    
     
-    # 🚀 2. เรียกใช้ตัวแปลงลำดับ ID ให้เป็น 1, 2, 3...
+    # 2. เรียกใช้ตัวแปลงลำดับ ID ให้เป็น 1, 2, 3...
     local_insp_map = get_local_inspection_mapping(db, unit_id)
 
     # =========================
-    # 1️⃣ Query inspection summary
+    #  Query inspection summary
     # =========================
     inspection_query = (
         db.query(
@@ -119,12 +117,12 @@ def get_unit_report(
     inspections = inspection_query.order_by(Inspection.inspection_id.desc()).all()
 
     # =========================
-    # 2️⃣ Build items + subRounds
+    #  Build items + subRounds
     # =========================
     items = []
 
     for ins in inspections:
-        # 🚀 3. แปลงเลข ID อัตโนมัติเป็นลำดับของหน่วยงานนี้
+        # 3. แปลงเลข ID อัตโนมัติเป็นลำดับของหน่วยงานนี้
         local_no = local_insp_map.get(ins.inspection_id, ins.inspection_id)
 
         # 🔹 ดึง classified (sub rounds) ของ inspection นี้
@@ -148,7 +146,7 @@ def get_unit_report(
 
         sub_rounds = [
             {
-                "id": c.classified_id,  # ⭐ ใช้ id นี้ยิง graph/classified
+                "id": c.classified_id,  
                 "roundNumber": c.round_number,
                 "date": c.date_time.strftime("%d/%m/%Y") if c.date_time else None,
                 "lv5": int(c.level5 or 0),
@@ -166,7 +164,7 @@ def get_unit_report(
             {
                 "id": ins.inspection_id,
                 "local_insp_no": local_no,             
-                "display_name": f"ครั้งที่ {local_no}", # 🚀 ส่งคำว่า "ครั้งที่ 1" ไปให้
+                "display_name": f"ครั้งที่ {local_no}", 
                 "date": ins.date_time.strftime("%d/%m/%Y") if ins.date_time else "-",
                 "lv5": int(ins.lv5 or 0),
                 "lv4": int(ins.lv4 or 0),
@@ -175,12 +173,12 @@ def get_unit_report(
                 "lv1": int(ins.lv1 or 0),
                 "lv0": int(ins.lv0 or 0),
                 "total": int(ins.total or 0),
-                "subRounds": sub_rounds,  # ⭐ เพิ่มตรงนี้
+                "subRounds": sub_rounds,  
             }
         )
 
     # =========================
-    # 3️⃣ Summary รวมทั้งหมด
+    #   Summary รวมทั้งหมด
     # =========================
     summary = {
         "lv5": sum(d["lv5"] for d in items),
@@ -199,7 +197,7 @@ def get_unit_report(
     }
 
 def get_inspection_report(db: Session, inspection_id: int):
-    # 🚀 1. ดึงชื่อหน่วยงานและ unit_id โดยหาจาก inspection_id
+    # 1. ดึงชื่อหน่วยงานและ unit_id โดยหาจาก inspection_id
     unit_info = (
         db.query(Unit.unit_name, Inspection.unit_id)
         .join(Inspection, Inspection.unit_id == Unit.unit_id)
@@ -212,7 +210,7 @@ def get_inspection_report(db: Session, inspection_id: int):
 
     if unit_info:
         unit_name = unit_info.unit_name
-        # 🚀 2. ใช้ตัวแปลงลำดับ เพื่อเปลี่ยนจาก ID ดิบให้เป็น 1, 2, 3...
+        # 2. ใช้ตัวแปลงลำดับ เพื่อเปลี่ยนจาก ID ดิบให้เป็น 1, 2, 3...
         local_insp_map = get_local_inspection_mapping(db, unit_info.unit_id)
         display_insp_id = local_insp_map.get(inspection_id, inspection_id)
 
@@ -245,7 +243,7 @@ def get_inspection_report(db: Session, inspection_id: int):
         return None
 
     # =============================
-    # 🔹 summary รวมเมล็ดทั้งหมด
+    #    summary รวมเมล็ดทั้งหมด
     # =============================
     summary = {
         "lv5": sum(r.level5 or 0 for r in rows),
@@ -258,7 +256,7 @@ def get_inspection_report(db: Session, inspection_id: int):
     }
 
     # =============================
-    # 🔹 accuracy ต่อรอบ (ใช้จาก table)
+    #   accuracy ต่อรอบ (ใช้จาก table)
     # =============================
     accuracy = []
     for r in rows:
@@ -284,7 +282,7 @@ def get_inspection_report(db: Session, inspection_id: int):
     }
 
 def get_inspection_summary(db: Session, inspection_id: int):
-    # 🚀 1. ดึงข้อมูล ครั้งที่ (inspection_id), รอบที่ (round_number) และ unit_id
+    # 1. ดึงข้อมูล ครั้งที่ (inspection_id), รอบที่ (round_number) และ unit_id
     classified_info = (
         db.query(Classified.inspection_id, Classified.round_number, Inspection.unit_id)
         .join(Inspection, Inspection.inspection_id == Classified.inspection_id)
@@ -300,7 +298,7 @@ def get_inspection_summary(db: Session, inspection_id: int):
         round_no = classified_info.round_number
         unit_id = classified_info.unit_id
 
-        # 🚀 2. แปลงลำดับ
+        # 2. แปลงลำดับ
         local_insp_map = get_local_inspection_mapping(db, unit_id)
         display_insp_id = local_insp_map.get(real_insp_id, real_insp_id)
 
@@ -364,7 +362,7 @@ def get_inspection_summary(db: Session, inspection_id: int):
     group_5_total = sum(group_5_bars)
 
     return {
-        "inspection_id": display_insp_id,  # 🚀 ส่งลำดับที่แปลงแล้วไปให้
+        "inspection_id": display_insp_id,  # ส่งลำดับที่แปลงแล้วไปให้
         "round_number": round_no,      
         "summary": {
             "0": {
@@ -441,7 +439,6 @@ def build_summary(ratios: list):
     return summary
 
 def list_ricegrains_by_inspection(db: Session, classified_id: int, level: int = None):
-    # 🚀 1. ดึงข้อมูลและแปลงลำดับ
     classified_info = (
         db.query(Classified.inspection_id, Classified.round_number, Inspection.unit_id)
         .join(Inspection, Inspection.inspection_id == Classified.inspection_id)
@@ -489,7 +486,7 @@ def list_ricegrains_by_inspection(db: Session, classified_id: int, level: int = 
     ]
 
     return {
-        "inspection_id": display_insp_id,  # 🚀 ส่งลำดับที่แปลงแล้ว
+        "inspection_id": display_insp_id,  
         "round_number": round_no,
         "grains": grains
     }
@@ -525,7 +522,6 @@ def delete_unit(db: Session, unit_id: int):
             except Exception as e:
                 pass
 
-        # 3️⃣ ลบ unit (มี ON DELETE CASCADE แล้ว)
         db.delete(unit)
         db.commit()
     except Exception as e:
@@ -632,7 +628,6 @@ def create_next_inspection(db: Session, unit_id: int):
     return {"inspection_id": new_inspection.inspection_id}
 
 def get_dropdown_inspections(db: Session, unit_id: int):
-    # 🚀 แปลงเลขสำหรับ Dropdown ครั้งที่
     local_insp_map = get_local_inspection_mapping(db, unit_id)
 
     rows = (
@@ -651,7 +646,6 @@ def get_dropdown_inspections(db: Session, unit_id: int):
     return [
         {
             "value": r.inspection_id,
-            # 🚀 5. เปลี่ยนมาใช้ค่าที่แปลงเป็นลำดับแล้ว
             "label": f"ครั้งที่ {local_insp_map.get(r.inspection_id, r.inspection_id)} (เหลือ {3 - r.round_count} รอบ)",
             "remaining": 3 - r.round_count,
             "next_round": r.round_count + 1
