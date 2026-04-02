@@ -3,22 +3,12 @@ npm i
 npm run dev
 
 Backend
-✅ 1. เข้าโฟลเดอร์ backend
-cd backend
 
-✅ 2. สร้าง virtual env
-✅ 3. ติดตั้ง dependencies
-//LINUX
-python -m venv venv
-source venv/bin/activate
-
-//WINDOW
-python -m venv venv
-source venv_backend/bin/activate
-
-pip install -r requirements.txt
-
-✅ 4. Run FastAPI
+How to run 
+1.docker compose up -d 
+2.cd backend
+3.source venv/bin/activate
+4. Run FastAPI
 uvicorn main:app --host 0.0.0.0 --port 8000
 
 Database
@@ -72,7 +62,7 @@ backend (if included)
 
 🗄 Database Access
 Connect locally from Jetson
-Host: localhost
+Host: 172.20.10.4
 Port: 5432
 User: api_user
 Password: api_password

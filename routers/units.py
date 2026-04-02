@@ -1,5 +1,6 @@
 # routers/unit.py
 from datetime import datetime
+from models.unit import Unit
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -13,8 +14,13 @@ from schemas.unit import UnitCreate, UnitUpdate
 
 router = APIRouter(prefix="/units", tags=["Units"], dependencies=[Depends(get_current_user)])
 
+
 @router.post("/create")
 def create(data: UnitCreate, db: Session = Depends(get_db)):
+    existing_unit = db.query(Unit).filter(Unit.unit_name == data.unit_name).first()
+    
+    if existing_unit:
+        raise HTTPException(status_code=400, detail="ชื่อหน่วยงานนี้มีอยู่ในระบบแล้ว กรุณาใช้ชื่ออื่น")
     unit = create_unit(db, data.unit_name)
     return success(unit, MessageEnum.CREATED)
 
@@ -66,6 +72,15 @@ def list_ricegrains(
 
 @router.put("/update/{unit_id}")
 def update(unit_id: int, data: UnitUpdate, db: Session = Depends(get_db)):
+    
+    existing_unit = db.query(Unit).filter(
+        Unit.unit_name == data.unit_name,
+        Unit.unit_id != unit_id  
+    ).first()
+    
+    if existing_unit:
+        raise HTTPException(status_code=400, detail="ชื่อหน่วยงานนี้มีอยู่ในระบบแล้ว กรุณาใช้ชื่ออื่น")
+
     unit = update_unit(db, unit_id, data.unit_name)
     return success(unit, MessageEnum.UPDATED)
 
