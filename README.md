@@ -5,9 +5,9 @@ npm run dev
 Backend
 
 How to run 
-1.docker compose up -d 
-2.cd backend
-3.source venv/bin/activate
+1.cd backend
+2.docker compose up -d 
+3.source venv_backend/bin/activate
 4. Run FastAPI
 uvicorn main:app --host 0.0.0.0 --port 8000
 
@@ -62,7 +62,7 @@ backend (if included)
 
 🗄 Database Access
 Connect locally from Jetson
-Host: 172.20.10.4
+Host: localhost
 Port: 5432
 User: api_user
 Password: api_password

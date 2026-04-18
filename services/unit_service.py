@@ -480,7 +480,7 @@ def list_ricegrains_by_inspection(db: Session, classified_id: int, level: int = 
         {
             "rice_grain_id": r.rice_grain_id,
             "belly_white_ratio": float(r.belly_white_ratio) if r.belly_white_ratio is not None else None,
-            "image": f"http://172.20.10.4:8000{convert_path_to_url(r.image)}" if r.image else None,
+            "image": f"http://localhost:8000{convert_path_to_url(r.image)}" if r.image else None,
         }
         for r in rows
     ]

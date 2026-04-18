@@ -6,7 +6,7 @@ import threading
 import asyncio
 from pathlib import Path
 import time
-
+import glob
 from fastapi import APIRouter, Depends, Body, WebSocket, WebSocketDisconnect
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
@@ -409,3 +409,25 @@ def stop_ai(data: dict = Body(...), db: Session = Depends(get_db), current_user:
         print(f"[Backend] Signal Error: {e}")
 
     return success(True, MessageEnum.SUCCESS)
+
+@router.get("/latest-image")
+def get_latest_result_image():
+    # 1. กำหนดโฟลเดอร์เป้าหมาย
+    results_dir = "/home/ricebelly/riceBellyProjectV4/ai_engine/results"
+    
+    # 2. ค้นหาไฟล์ .jpg และ .png ทั้งหมดในโฟลเดอร์ results และซับโฟลเดอร์
+    list_of_files = glob.glob(f"{results_dir}/**/*.jpg", recursive=True) + \
+                    glob.glob(f"{results_dir}/**/*.png", recursive=True)
+    
+    # 3. ถ้าไม่มีไฟล์เลย
+    if not list_of_files:
+        return {"latest_image": None}
+        
+    # 4. หาไฟล์ที่เพิ่งถูกสร้างขึ้นมาใหม่ที่สุด (Latest by creation/modification time)
+    latest_file = max(list_of_files, key=os.path.getmtime)
+    
+    # 5. ตัด Path ส่วนหน้าทิ้ง ให้เหลือแค่ results/... เพื่อส่งให้หน้าเว็บ
+    # ตัวอย่าง: /home/.../ai_engine/results/session1/img.jpg -> results/session1/img.jpg
+    relative_path = latest_file.split("ai_engine/")[-1]
+    
+    return {"latest_image": f"http://localhost:8000/{relative_path}"}
